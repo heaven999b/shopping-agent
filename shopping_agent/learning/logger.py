@@ -13,33 +13,51 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from shopping_agent.common.types import FeedbackRecord
 
 
 class BehaviorLogger:
-    def __init__(self):
+    def __init__(self, log_path: str | None = None):
         self._logs: list[dict[str, Any]] = []
+        self._path = Path(log_path) if log_path else Path("logs") / "behavior.jsonl"
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+
+    def _append_entry(self, entry: dict[str, Any]) -> None:
+        self._logs.append(entry)
+        with self._path.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+    @staticmethod
+    def _normalize_attribution_step(step: Any) -> dict[str, Any]:
+        if isinstance(step, dict):
+            return {
+                "module": step.get("module", ""),
+                "decision": step.get("decision", ""),
+            }
+        return {
+            "module": getattr(step, "module", ""),
+            "decision": getattr(step, "decision", ""),
+        }
 
     def log(self, record: FeedbackRecord) -> None:
         """记录一条反馈信号。"""
         entry = {
+            "type": "feedback",
             "session_id": record.session_id,
             "task_id": record.task_id,
             "plan_id": record.plan_id,
             "signal": record.signal.value,
             "context": record.context,
             "attribution_steps": [
-                {
-                    "module": a.get("module", ""),
-                    "decision": a.get("decision", ""),
-                }
+                self._normalize_attribution_step(a)
                 for a in record.attribution_trace[:5]  # 只记前 5 步
             ],
             "timestamp": record.timestamp.isoformat(),
         }
-        self._logs.append(entry)
+        self._append_entry(entry)
 
     def log_tool_call(
         self,
@@ -51,7 +69,7 @@ class BehaviorLogger:
         success: bool,
     ) -> None:
         """记录工具调用。"""
-        self._logs.append({
+        self._append_entry({
             "type": "tool_call",
             "session_id": session_id,
             "tool_name": tool_name,
@@ -60,6 +78,14 @@ class BehaviorLogger:
             "duration_ms": duration_ms,
             "success": success,
             "timestamp": datetime.now().isoformat(),
+        })
+
+    def log_event(self, event_type: str, **fields: Any) -> None:
+        """记录通用结构化事件。"""
+        self._append_entry({
+            "type": event_type,
+            "timestamp": datetime.now().isoformat(),
+            **fields,
         })
 
     def get_session_logs(self, session_id: str) -> list[dict]:

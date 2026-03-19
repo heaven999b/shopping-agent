@@ -21,7 +21,10 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-import anthropic
+try:
+    import anthropic
+except ImportError:  # pragma: no cover - exercised only in minimal environments
+    anthropic = None
 
 from shopping_agent.common.constants import DEFAULT_MAX_TOKENS, DEFAULT_MODEL
 from shopping_agent.common.exceptions import IntentParseError
@@ -345,7 +348,7 @@ class IntentParser:
     """
 
     def __init__(self):
-        self._client = anthropic.Anthropic()
+        self._client = anthropic.Anthropic() if anthropic is not None else None
         self._fallback = RuleFallbackParser()
         self._validator = ParsedDataValidator()
 
@@ -445,6 +448,9 @@ class IntentParser:
         return f"用户输入：{user_input}{profile_hint}"
 
     def _call_llm(self, system: str, user: str) -> str:
+        if self._client is None:
+            raise IntentParseError("anthropic package is not installed")
+
         response = self._client.messages.create(
             model=DEFAULT_MODEL,
             max_tokens=DEFAULT_MAX_TOKENS,

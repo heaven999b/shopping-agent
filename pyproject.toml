@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "shop-plan"
+version = "0.1.0"
+description = "Constraint-aware shopping agent with benchmark and RL scaffolding."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "anthropic>=0.40.0",
+  "numpy>=1.24.0",
+]
+
+[project.optional-dependencies]
+retrieval = [
+  "scikit-learn>=1.4.0",
+]
+dev = [
+  "pytest>=8.0.0",
+  "scikit-learn>=1.4.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-q"

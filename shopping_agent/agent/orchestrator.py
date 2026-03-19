@@ -28,6 +28,7 @@ from shopping_agent.common.exceptions import (
     IntentParseError,
     NoProductFoundError,
     PlanningError,
+    SessionNotFoundError,
     ShopPlanError,
     VerificationError,
 )
@@ -47,6 +48,7 @@ from shopping_agent.planning.planner import ConstraintAwarePlanner
 from shopping_agent.product.candidate_graph import CandidateGraphBuilder
 from shopping_agent.product.normalizer import ProductNormalizer
 from shopping_agent.retrieval.retriever import HybridRetriever
+from shopping_agent.storage.session_store import SessionStore
 from shopping_agent.verifier.pipeline import VerificationPipeline
 
 
@@ -65,7 +67,12 @@ class ShoppingAgentOrchestrator:
         )
     """
 
-    def __init__(self, use_rl: bool = False):
+    def __init__(
+        self,
+        use_rl: bool = False,
+        session_store: Optional[SessionStore] = None,
+        behavior_logger: Optional[BehaviorLogger] = None,
+    ):
         # 初始化各模块
         self.intent_parser = IntentParser()
         self.clarification_policy = ClarificationPolicy(use_rl=use_rl)
@@ -76,11 +83,11 @@ class ShoppingAgentOrchestrator:
         self.planner = ConstraintAwarePlanner(use_rl=use_rl)
         self.verifier = VerificationPipeline()
         self.explainer = Explainer()
-        self.behavior_logger = BehaviorLogger()
+        self.behavior_logger = behavior_logger or BehaviorLogger()
         self.preference_updater = PreferenceUpdater()
         self.constraint_relaxer = ConstraintRelaxer()
+        self.session_store = session_store or SessionStore()
 
-        # 会话存储（生产环境应替换为 Redis/DB）
         self._sessions: dict[str, AgentState] = {}
         self._use_rl = use_rl
 
@@ -96,6 +103,14 @@ class ShoppingAgentOrchestrator:
         session_id = str(uuid.uuid4())
         state = AgentState(session_id=session_id, user_id=user_id)
         self._sessions[session_id] = state
+        self.session_store.create(session_id, user_id)
+        self._persist_state(state)
+        self.behavior_logger.log_event(
+            "session_created",
+            session_id=session_id,
+            user_id=user_id,
+            use_rl=self._use_rl,
+        )
 
         response = self._execute_workflow(state, user_input)
         return {"session_id": session_id, **response}
@@ -106,7 +121,14 @@ class ShoppingAgentOrchestrator:
         """
         state = self._sessions.get(session_id)
         if state is None:
-            raise ValueError(f"Session {session_id} not found.")
+            state = self._restore_state(session_id)
+            self._sessions[session_id] = state
+            self.behavior_logger.log_event(
+                "session_restored",
+                session_id=session_id,
+                user_id=state.user_id,
+                current_step=state.current_step.value,
+            )
 
         response = self._execute_workflow(state, user_input)
         return {"session_id": session_id, **response}
@@ -187,57 +209,92 @@ class ShoppingAgentOrchestrator:
         """
         try:
             # Step 1: 解析意图
-            state.transition(WorkflowStep.PARSE_INTENT)
+            self._transition_state(state, WorkflowStep.PARSE_INTENT)
             self._step_parse_intent(state, user_input)
 
             # Step 2: 加载用户记忆
-            state.transition(WorkflowStep.LOAD_MEMORY)
+            self._transition_state(state, WorkflowStep.LOAD_MEMORY)
             self._step_load_memory(state)
 
             # Step 3: 自适应澄清
-            state.transition(WorkflowStep.CLARIFY)
+            self._transition_state(state, WorkflowStep.CLARIFY)
             clarification_response = self._step_clarify(state)
             if clarification_response:
                 # 本轮以澄清问题结束，等待用户回答
+                state.add_turn(
+                    user_input,
+                    clarification_response,
+                    clarification_asked=clarification_response,
+                )
+                self._persist_state(state)
+                self.behavior_logger.log_event(
+                    "clarification_requested",
+                    session_id=state.session_id,
+                    user_id=state.user_id,
+                    clarification_rounds_used=state.clarification_rounds_used,
+                )
                 return self._build_response(state, clarification_response, needs_input=True)
 
             # Step 4: 检索商品
-            state.transition(WorkflowStep.RETRIEVE)
+            self._transition_state(state, WorkflowStep.RETRIEVE)
             self._step_retrieve(state)
 
             # Step 5: 构建候选图
-            state.transition(WorkflowStep.BUILD_GRAPH)
+            self._transition_state(state, WorkflowStep.BUILD_GRAPH)
             self._step_build_graph(state)
 
             # Step 6: 规划方案
-            state.transition(WorkflowStep.PLAN)
+            self._transition_state(state, WorkflowStep.PLAN)
             self._step_plan(state)
 
             # Step 7: 校验方案
-            state.transition(WorkflowStep.VERIFY)
+            self._transition_state(state, WorkflowStep.VERIFY)
             self._step_verify(state)
 
             # Step 8: 生成回复
-            state.transition(WorkflowStep.RESPOND)
+            self._transition_state(state, WorkflowStep.RESPOND)
             response_text = self._step_respond(state)
 
-            state.transition(WorkflowStep.DONE)
+            self._transition_state(state, WorkflowStep.DONE)
             state.add_turn(user_input, response_text)
+            self._persist_state(state)
+            self.behavior_logger.log_event(
+                "session_completed",
+                session_id=state.session_id,
+                user_id=state.user_id,
+                selected_plan_id=state.selected_plan.plan_id if state.selected_plan else None,
+            )
             return self._build_response(state, response_text)
 
         except (IntentParseError, NoProductFoundError,
                 InfeasibleConstraintError, VerificationError) as e:
             state.record_error("Orchestrator", e)
-            state.transition(WorkflowStep.ERROR)
+            self._transition_state(state, WorkflowStep.ERROR)
             error_msg = self._handle_graceful_error(state, e)
             state.add_turn(user_input, error_msg)
+            self._persist_state(state)
+            self.behavior_logger.log_event(
+                "session_error",
+                session_id=state.session_id,
+                user_id=state.user_id,
+                error_type=type(e).__name__,
+                error_message=str(e),
+            )
             return self._build_response(state, error_msg, is_error=True)
 
         except ShopPlanError as e:
             state.record_error("Orchestrator", e)
-            state.transition(WorkflowStep.ERROR)
+            self._transition_state(state, WorkflowStep.ERROR)
             msg = f"抱歉，处理您的请求时遇到问题：{str(e)}"
             state.add_turn(user_input, msg)
+            self._persist_state(state)
+            self.behavior_logger.log_event(
+                "session_error",
+                session_id=state.session_id,
+                user_id=state.user_id,
+                error_type=type(e).__name__,
+                error_message=str(e),
+            )
             return self._build_response(state, msg, is_error=True)
 
     # ---------------------------------------------------------------------------
@@ -486,6 +543,47 @@ class ShoppingAgentOrchestrator:
     # ---------------------------------------------------------------------------
     # 辅助方法
     # ---------------------------------------------------------------------------
+
+    def _transition_state(self, state: AgentState, next_step: WorkflowStep) -> None:
+        state.transition(next_step)
+        self._persist_state(state)
+        self.behavior_logger.log_event(
+            "workflow_step",
+            session_id=state.session_id,
+            user_id=state.user_id,
+            step=next_step.value,
+            clarification_rounds_used=state.clarification_rounds_used,
+        )
+
+    def _persist_state(self, state: AgentState) -> None:
+        status = (
+            "done" if state.current_step == WorkflowStep.DONE
+            else "error" if state.current_step == WorkflowStep.ERROR
+            else "active"
+        )
+        self.session_store.update_state(
+            session_id=state.session_id,
+            task=state.task,
+            conversation_history=state.conversation_history,
+            status=status,
+            current_step=state.current_step.value,
+            clarification_rounds_used=state.clarification_rounds_used,
+        )
+
+    def _restore_state(self, session_id: str) -> AgentState:
+        record = self.session_store.load(session_id)
+        if record is None:
+            raise SessionNotFoundError(f"Session {session_id} not found")
+
+        state = AgentState(session_id=record["session_id"], user_id=record["user_id"])
+        state.task = record.get("task")
+        state.current_step = WorkflowStep(
+            record.get("current_step", WorkflowStep.INIT.value)
+        )
+        state.conversation_history = record.get("conversation", [])
+        state.current_round = len(state.conversation_history)
+        state.clarification_rounds_used = record.get("clarification_rounds_used", 0)
+        return state
 
     def _handle_graceful_error(self, state: AgentState, error: Exception) -> str:
         if isinstance(error, IntentParseError):

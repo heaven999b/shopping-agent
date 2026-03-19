@@ -20,10 +20,14 @@ import random
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-import anthropic
+try:
+    import anthropic
+except ImportError:  # pragma: no cover - exercised only in minimal environments
+    anthropic = None
 
 from shopping_agent.common.constants import DEFAULT_MAX_TOKENS, DEFAULT_MODEL
 from shopping_agent.common.types import ClarificationQuestion, ShoppingTask
+from shopping_agent.common.exceptions import ToolUnavailableError
 
 
 # ---------------------------------------------------------------------------
@@ -195,6 +199,8 @@ class LLMUserSimulator:
     """
 
     def __init__(self):
+        if anthropic is None:
+            raise ToolUnavailableError("anthropic package is not installed")
         self._client = anthropic.Anthropic()
 
     def answer_clarification(

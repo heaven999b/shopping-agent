@@ -80,7 +80,7 @@ data/
 ├── products.json       # 27 件示例商品（8 品类）
 └── tasks.json          # 10 条基准测试任务
 
-tests/                  # 61 个单元测试（pytest）
+tests/                  # 63 个单元测试（pytest）
 ```
 
 ---
@@ -88,8 +88,11 @@ tests/                  # 61 个单元测试（pytest）
 ## 快速开始
 
 ```bash
-# 安装依赖
+# 运行时依赖（最小）
 pip install -r requirements.txt
+
+# 开发 / 测试依赖（推荐用于复现仓库结果）
+pip install -r requirements-dev.txt
 
 # 设置 API Key
 export ANTHROPIC_API_KEY=your_key_here
@@ -106,6 +109,30 @@ python main.py train --pretrain --synthetic
 # 数据目录信息
 python main.py catalog
 ```
+
+### 复现与依赖说明
+
+- `requirements.txt`
+  运行时最小依赖，适合 CLI 和核心逻辑。
+- `requirements-dev.txt`
+  开发与测试依赖，包含 `pytest` 和 `scikit-learn`，推荐用于 fresh env 复现。
+- `pyproject.toml`
+  提供统一项目元数据、可选依赖和 pytest 配置。
+
+当前仓库支持两种检索模式：
+
+- 安装了 `scikit-learn`：使用标准 TF-IDF 向量检索实现。
+- 未安装 `scikit-learn`：自动降级到内置的轻量 TF-IDF 实现，基础测试仍可运行。
+
+### 测试
+
+```bash
+# 推荐：fresh env 下完整复现
+pip install -r requirements-dev.txt
+pytest
+```
+
+当前仓库包含 `63` 个 pytest 单元测试，并通过 GitHub Actions 在多 Python 版本下执行。
 
 ### 示例交互
 

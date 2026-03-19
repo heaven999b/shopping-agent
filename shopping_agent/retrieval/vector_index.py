@@ -20,8 +20,13 @@ import logging
 from typing import TYPE_CHECKING, Optional
 
 import numpy as np
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
+
+try:
+    from sklearn.feature_extraction.text import TfidfVectorizer
+    from sklearn.metrics.pairwise import cosine_similarity
+except ImportError:  # pragma: no cover - exercised only in minimal environments
+    TfidfVectorizer = None
+    cosine_similarity = None
 
 from shopping_agent.common.types import Product
 
@@ -29,6 +34,110 @@ if TYPE_CHECKING:
     pass
 
 logger = logging.getLogger(__name__)
+
+
+class _FallbackTfidfVectorizer:
+    """简化版 TF-IDF，供缺少 scikit-learn 时降级使用。"""
+
+    def __init__(
+        self,
+        min_df: int = 1,
+        max_features: int = 5000,
+        ngram_range: tuple[int, int] = (1, 2),
+        analyzer: str = "char_wb",
+        sublinear_tf: bool = True,
+    ):
+        self.min_df = min_df
+        self.max_features = max_features
+        self.ngram_range = ngram_range
+        self.analyzer = analyzer
+        self.sublinear_tf = sublinear_tf
+        self.vocabulary_: dict[str, int] = {}
+        self._idf: np.ndarray | None = None
+
+    def fit_transform(self, corpus: list[str]) -> np.ndarray:
+        tokenized = [self._analyze(text) for text in corpus]
+        doc_freq: dict[str, int] = {}
+        for tokens in tokenized:
+            for token in set(tokens):
+                doc_freq[token] = doc_freq.get(token, 0) + 1
+
+        features = [
+            token for token, df in sorted(doc_freq.items(), key=lambda item: (-item[1], item[0]))
+            if df >= self.min_df
+        ][: self.max_features]
+        self.vocabulary_ = {token: idx for idx, token in enumerate(features)}
+
+        n_docs = len(corpus)
+        n_features = len(self.vocabulary_)
+        matrix = np.zeros((n_docs, n_features), dtype=float)
+        if n_features == 0:
+            self._idf = np.zeros(0, dtype=float)
+            return matrix
+
+        self._idf = np.zeros(n_features, dtype=float)
+        for token, idx in self.vocabulary_.items():
+            df = doc_freq[token]
+            self._idf[idx] = np.log((1 + n_docs) / (1 + df)) + 1.0
+
+        for row, tokens in enumerate(tokenized):
+            counts: dict[int, int] = {}
+            for token in tokens:
+                idx = self.vocabulary_.get(token)
+                if idx is not None:
+                    counts[idx] = counts.get(idx, 0) + 1
+            for idx, count in counts.items():
+                tf = 1.0 + np.log(count) if self.sublinear_tf else float(count)
+                matrix[row, idx] = tf * self._idf[idx]
+
+        return self._normalize(matrix)
+
+    def transform(self, texts: list[str]) -> np.ndarray:
+        n_features = len(self.vocabulary_)
+        matrix = np.zeros((len(texts), n_features), dtype=float)
+        if n_features == 0 or self._idf is None:
+            return matrix
+
+        for row, text in enumerate(texts):
+            counts: dict[int, int] = {}
+            for token in self._analyze(text):
+                idx = self.vocabulary_.get(token)
+                if idx is not None:
+                    counts[idx] = counts.get(idx, 0) + 1
+            for idx, count in counts.items():
+                tf = 1.0 + np.log(count) if self.sublinear_tf else float(count)
+                matrix[row, idx] = tf * self._idf[idx]
+
+        return self._normalize(matrix)
+
+    def _analyze(self, text: str) -> list[str]:
+        if self.analyzer == "char_wb":
+            padded = f" {text} "
+            tokens: list[str] = []
+            for n in range(self.ngram_range[0], self.ngram_range[1] + 1):
+                if n <= 0 or len(padded) < n:
+                    continue
+                for i in range(len(padded) - n + 1):
+                    tokens.append(padded[i : i + n])
+            return tokens
+        return text.split()
+
+    @staticmethod
+    def _normalize(matrix: np.ndarray) -> np.ndarray:
+        if matrix.size == 0:
+            return matrix
+        norms = np.linalg.norm(matrix, axis=1, keepdims=True)
+        norms[norms == 0.0] = 1.0
+        return matrix / norms
+
+
+def _cosine_similarity(query_vec: np.ndarray, matrix: np.ndarray) -> np.ndarray:
+    if cosine_similarity is not None:
+        return cosine_similarity(query_vec, matrix)
+
+    if query_vec.size == 0 or matrix.size == 0:
+        return np.zeros((query_vec.shape[0], matrix.shape[0]), dtype=float)
+    return query_vec @ matrix.T
 
 
 def _product_to_text(product: Product) -> str:
@@ -68,7 +177,8 @@ class TFIDFVectorIndex:
             max_features: 词典最大词汇量
             ngram_range: n-gram 范围，(1,2) 同时使用 unigram + bigram
         """
-        self._vectorizer = TfidfVectorizer(
+        vectorizer_cls = TfidfVectorizer or _FallbackTfidfVectorizer
+        self._vectorizer = vectorizer_cls(
             min_df=min_df,
             max_features=max_features,
             ngram_range=ngram_range,
@@ -92,6 +202,9 @@ class TFIDFVectorIndex:
         if not products:
             logger.warning("TFIDFVectorIndex.build() called with empty product list")
             return
+
+        if TfidfVectorizer is None:
+            logger.warning("scikit-learn not installed, using fallback TF-IDF implementation")
 
         self._products = products
         corpus = [_product_to_text(p) for p in products]
@@ -159,7 +272,7 @@ class TFIDFVectorIndex:
 
         # 取子矩阵做 cosine 相似度
         sub_matrix = self._tfidf_matrix[candidate_indices]  # (n_candidates, n_features)
-        scores = cosine_similarity(query_vec, sub_matrix)[0]  # shape: (n_candidates,)
+        scores = _cosine_similarity(query_vec, sub_matrix)[0]  # shape: (n_candidates,)
 
         # 排序，取 top_k
         top_indices = np.argsort(scores)[::-1][:top_k]

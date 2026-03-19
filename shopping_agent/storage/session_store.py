@@ -26,6 +26,16 @@ import json
 from datetime import datetime
 from typing import Any, Optional
 
+from shopping_agent.agent.state import ConversationTurn
+from shopping_agent.common.types import (
+    ConflictPair,
+    ConflictResolution,
+    Constraint,
+    ConstraintSeverity,
+    ShoppingTask,
+    TaskRevision,
+    TaskType,
+)
 from shopping_agent.storage.db import SQLiteDB, get_db
 
 
@@ -67,8 +77,28 @@ def _task_to_dict(task: Any) -> Optional[dict]:
             for c in task.constraints
         ],
         "implicit_needs": task.implicit_needs,
+        "conflict_pairs": [
+            {
+                "constraint_a": cp.constraint_a,
+                "constraint_b": cp.constraint_b,
+                "description": cp.description,
+                "resolution": cp.resolution.value,
+            }
+            for cp in task.conflict_pairs
+        ],
         "uncertainty_slots": task.uncertainty_slots,
         "uncertainty_score": task.uncertainty_score,
+        "revision_history": [
+            {
+                "round_index": rev.round_index,
+                "changed_fields": rev.changed_fields,
+                "user_utterance": rev.user_utterance,
+                "timestamp": rev.timestamp.isoformat(),
+            }
+            for rev in task.revision_history
+        ],
+        "created_at": task.created_at.isoformat(),
+        "updated_at": task.updated_at.isoformat(),
     }
 
 
@@ -83,6 +113,73 @@ def _conversation_to_list(history: list) -> list[dict]:
             "timestamp": t.timestamp.isoformat(),
         }
         for t in history
+    ]
+
+
+def _dict_to_task(data: dict) -> ShoppingTask:
+    constraints = [
+        Constraint(
+            key=item["key"],
+            value=item.get("value"),
+            severity=ConstraintSeverity(item.get("severity", ConstraintSeverity.HARD.value)),
+            source=item.get("source", "user"),
+        )
+        for item in data.get("constraints", [])
+    ]
+    conflict_pairs = [
+        ConflictPair(
+            constraint_a=item.get("constraint_a", ""),
+            constraint_b=item.get("constraint_b", ""),
+            description=item.get("description", ""),
+            resolution=ConflictResolution(
+                item.get("resolution", ConflictResolution.ASK_USER.value)
+            ),
+        )
+        for item in data.get("conflict_pairs", [])
+    ]
+    revision_history = [
+        TaskRevision(
+            round_index=item.get("round_index", 0),
+            changed_fields=item.get("changed_fields", {}),
+            user_utterance=item.get("user_utterance", ""),
+            timestamp=datetime.fromisoformat(
+                item.get("timestamp", datetime.now().isoformat())
+            ),
+        )
+        for item in data.get("revision_history", [])
+    ]
+    return ShoppingTask(
+        task_id=data["task_id"],
+        task_type=TaskType(data.get("task_type", TaskType.SINGLE.value)),
+        categories=data.get("categories", []),
+        raw_query=data.get("raw_query", ""),
+        constraints=constraints,
+        implicit_needs=data.get("implicit_needs", []),
+        conflict_pairs=conflict_pairs,
+        uncertainty_slots=data.get("uncertainty_slots", {}),
+        uncertainty_score=float(data.get("uncertainty_score", 1.0)),
+        revision_history=revision_history,
+        created_at=datetime.fromisoformat(
+            data.get("created_at", datetime.now().isoformat())
+        ),
+        updated_at=datetime.fromisoformat(
+            data.get("updated_at", datetime.now().isoformat())
+        ),
+    )
+
+
+def _list_to_conversation(history: list[dict]) -> list[ConversationTurn]:
+    return [
+        ConversationTurn(
+            round_index=item.get("round_index", 0),
+            user_input=item.get("user_input", ""),
+            agent_response=item.get("agent_response", ""),
+            clarification_asked=item.get("clarification_asked"),
+            timestamp=datetime.fromisoformat(
+                item.get("timestamp", datetime.now().isoformat())
+            ),
+        )
+        for item in history
     ]
 
 
@@ -151,10 +248,11 @@ class SessionStore:
         result = dict(row)
         if result.get("task_json"):
             try:
-                result["task"] = json.loads(result["task_json"])
-            except json.JSONDecodeError:
+                result["task"] = _dict_to_task(json.loads(result["task_json"]))
+            except (json.JSONDecodeError, KeyError, TypeError, ValueError):
                 result["task"] = None
-        result["conversation"] = json.loads(result.get("conversation_json") or "[]")
+        conversation = json.loads(result.get("conversation_json") or "[]")
+        result["conversation"] = _list_to_conversation(conversation)
         return result
 
     def list_by_user(self, user_id: str, limit: int = 20) -> list[dict[str, Any]]:
