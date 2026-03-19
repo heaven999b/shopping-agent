@@ -10,6 +10,9 @@
   - avg_overall_score     平均综合得分
   - avg_turns             平均澄清轮数
   - coverage              有推荐结果的任务占比（系统覆盖率）
+  - plan_diversity        方案间价格/得分的变异系数（越高越好）
+  - revision_rate         需要图修复的方案比例（越低越好）
+  - graph_recovery_rate   图修复成功比例（有修复尝试时）
 """
 
 from __future__ import annotations
@@ -42,6 +45,13 @@ class TaskResult:
     clarification_turns: int = 0    # 澄清轮数
     latency_ms: float = 0.0         # 端到端耗时
 
+    # 方案多样性（多套方案时才有意义）
+    plan_diversity: float = 0.0     # 各方案价格的变异系数（std/mean），0~1+
+    plan_score_variance: float = 0.0  # 各方案综合得分方差
+
+    # 图修复标记
+    graph_recovery_used: bool = False  # 此任务是否触发了图修复
+
     # 方案明细（用于 per-item 分析）
     plan_items: list[dict] = field(default_factory=list)
 
@@ -59,6 +69,9 @@ class TaskResult:
             "num_plans": self.num_plans,
             "clarification_turns": self.clarification_turns,
             "latency_ms": round(self.latency_ms, 1),
+            "plan_diversity": round(self.plan_diversity, 4),
+            "plan_score_variance": round(self.plan_score_variance, 4),
+            "graph_recovery_used": self.graph_recovery_used,
         }
 
 
@@ -96,6 +109,14 @@ class MetricsComputer:
             if results_with_result else 0.0
         )
 
+        # 方案多样性（取各任务的平均 plan_diversity）
+        diversity_vals = [r.plan_diversity for r in results if r.plan_diversity > 0]
+        avg_plan_diversity = sum(diversity_vals) / len(diversity_vals) if diversity_vals else 0.0
+
+        # 图修复使用率
+        n_graph_recovery = sum(1 for r in results if r.graph_recovery_used)
+        graph_recovery_rate = n_graph_recovery / n
+
         # 错误分析
         errors = [r.error for r in results if r.error]
         error_rate = len(errors) / n
@@ -111,10 +132,14 @@ class MetricsComputer:
             "budget_satisfaction_rate": round(n_budget_ok / n, 4),
             "avg_constraint_hit_rate": round(avg_constraint_hit, 4),
             "avg_overall_score": round(avg_score, 4),
+            # 方案质量
+            "avg_plan_diversity": round(avg_plan_diversity, 4),
             # 过程指标
             "avg_clarification_turns": round(avg_turns, 3),
             "avg_latency_ms": round(avg_latency, 1),
             "avg_budget_ratio": round(avg_budget_ratio, 3),
+            # 图修复
+            "graph_recovery_rate": round(graph_recovery_rate, 4),
             # 错误
             "error_rate": round(error_rate, 4),
             "errors": errors[:5],  # 最多显示 5 个错误
@@ -133,7 +158,8 @@ class MetricsComputer:
         metric_keys = [
             "success_rate", "coverage", "budget_satisfaction_rate",
             "avg_constraint_hit_rate", "avg_overall_score",
-            "avg_clarification_turns", "avg_budget_ratio",
+            "avg_plan_diversity", "avg_clarification_turns",
+            "avg_budget_ratio", "graph_recovery_rate",
         ]
         comparison = {}
         for key in metric_keys:

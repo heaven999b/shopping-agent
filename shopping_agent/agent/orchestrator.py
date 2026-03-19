@@ -387,6 +387,44 @@ class ShoppingAgentOrchestrator:
             if report.passed:
                 valid_plans.append(plan)
 
+        # ----------------------------------------------------------------
+        # Graph-based recovery: 当所有方案均被阻断时，
+        # 尝试用候选图中的 SUBSTITUTE 边替换违规商品，生成修复方案
+        # ----------------------------------------------------------------
+        if not valid_plans and state.candidate_graph and state.retrieved_products:
+            from shopping_agent.product.candidate_graph import GraphBasedRecovery
+            recovery = GraphBasedRecovery(max_swaps=2)
+            product_index = recovery.build_product_index(state.retrieved_products)
+            recovered: list = []
+
+            for plan, report in zip(state.candidate_plans, reports):
+                if report.passed:
+                    continue
+                # 提取阻断原因（取第一个 BLOCK 的关键词）
+                block_msgs = [r.message for r in report.results
+                              if r.status.value == "block"]
+                block_reason = (
+                    "budget" if any("预算" in m or "超出" in m for m in block_msgs)
+                    else "constraint" if any("库存" in m or "配送" in m for m in block_msgs)
+                    else "budget"  # 默认尝试预算修复
+                )
+                repaired = recovery.try_repair(
+                    plan, state.task, state.candidate_graph, product_index, block_reason
+                )
+                if repaired:
+                    re_report = self.verifier.verify(repaired, state.task)
+                    if re_report.passed:
+                        recovered.append(repaired)
+                        reports.append(re_report)
+
+            if recovered:
+                valid_plans = recovered
+                state.record_attribution(
+                    module="GraphBasedRecovery",
+                    decision=f"图修复成功 {len(recovered)} 套方案",
+                    rationale="通过 SUBSTITUTE 边替换违规商品",
+                )
+
         state.verification_reports = reports
         state.candidate_plans = valid_plans
 
@@ -397,8 +435,8 @@ class ShoppingAgentOrchestrator:
         state.selected_plan = max(valid_plans, key=lambda p: p.overall_score)
         state.record_attribution(
             module="VerificationPipeline",
-            decision=f"通过校验: {len(valid_plans)}/{len(reports)} 套方案",
-            rationale="预算/约束/兼容性/时效/风险五重校验",
+            decision=f"通过校验: {len(valid_plans)}/{len(state.candidate_plans + reports)} 套方案",
+            rationale="预算/约束/兼容性/时效/风险五重校验 + 图修复",
             duration_ms=(time.time() - t0) * 1000,
         )
 

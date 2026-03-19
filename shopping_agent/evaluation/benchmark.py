@@ -212,6 +212,28 @@ class BenchmarkRunner:
                     plan_items_with_attrs, required_attrs
                 )
 
+                # Plan diversity: price variation coefficient across candidate plans
+                all_plans = state.candidate_plans
+                if len(all_plans) >= 2:
+                    prices = [p.total_price for p in all_plans]
+                    mean_price = sum(prices) / len(prices)
+                    if mean_price > 0:
+                        import math
+                        variance = sum((p - mean_price) ** 2 for p in prices) / len(prices)
+                        result.plan_diversity = math.sqrt(variance) / mean_price
+
+                    scores = [p.overall_score for p in all_plans]
+                    score_mean = sum(scores) / len(scores)
+                    result.plan_score_variance = sum(
+                        (s - score_mean) ** 2 for s in scores
+                    ) / len(scores)
+
+                # Graph recovery detection
+                result.graph_recovery_used = any(
+                    "图修复" in attr.decision or "GraphBased" in attr.module
+                    for attr in state.attribution_trace
+                )
+
                 result.success = result.has_result and result.budget_satisfied
             else:
                 result.success = False
@@ -227,10 +249,12 @@ class BenchmarkRunner:
         if verbose:
             status = "✓" if result.success else "✗"
             budget_str = f"¥{result.budget_ratio * (budget or 0):.0f}/{budget}" if budget else "N/A"
+            recovery_tag = " [graph-repair]" if result.graph_recovery_used else ""
             print(
                 f"  [{status}] {task_id} | score={result.overall_score:.3f} "
                 f"| budget={budget_str} | plans={result.num_plans} "
-                f"| {result.latency_ms:.0f}ms"
+                f"| diversity={result.plan_diversity:.3f}"
+                f"| {result.latency_ms:.0f}ms{recovery_tag}"
             )
 
         return result
@@ -263,17 +287,19 @@ class BenchmarkRunner:
 
     @staticmethod
     def _print_summary(metrics: dict[str, Any]) -> None:
-        print("\n" + "=" * 50)
+        print("\n" + "=" * 55)
         print("Benchmark Summary")
-        print("=" * 50)
-        print(f"  Tasks:              {metrics['num_tasks']}")
-        print(f"  Success Rate:       {metrics['success_rate']:.1%}")
-        print(f"  Coverage:           {metrics['coverage']:.1%}")
-        print(f"  Budget Satisfied:   {metrics['budget_satisfaction_rate']:.1%}")
-        print(f"  Constraint Hit:     {metrics['avg_constraint_hit_rate']:.1%}")
-        print(f"  Avg Score:          {metrics['avg_overall_score']:.4f}")
-        print(f"  Avg Latency:        {metrics['avg_latency_ms']:.0f} ms")
-        print(f"  Avg Budget Ratio:   {metrics['avg_budget_ratio']:.2f}")
+        print("=" * 55)
+        print(f"  Tasks:                {metrics['num_tasks']}")
+        print(f"  Success Rate:         {metrics['success_rate']:.1%}")
+        print(f"  Coverage:             {metrics['coverage']:.1%}")
+        print(f"  Budget Satisfied:     {metrics['budget_satisfaction_rate']:.1%}")
+        print(f"  Constraint Hit Rate:  {metrics['avg_constraint_hit_rate']:.1%}")
+        print(f"  Avg Score:            {metrics['avg_overall_score']:.4f}")
+        print(f"  Plan Diversity (CV):  {metrics['avg_plan_diversity']:.4f}")
+        print(f"  Avg Budget Ratio:     {metrics['avg_budget_ratio']:.2f}")
+        print(f"  Avg Latency:          {metrics['avg_latency_ms']:.0f} ms")
+        print(f"  Graph Recovery Rate:  {metrics['graph_recovery_rate']:.1%}")
         if metrics.get("errors"):
-            print(f"  Errors ({metrics['error_rate']:.1%}): {metrics['errors'][:2]}")
-        print("=" * 50)
+            print(f"  Errors ({metrics['error_rate']:.1%}):  {metrics['errors'][:2]}")
+        print("=" * 55)
