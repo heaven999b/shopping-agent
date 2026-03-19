@@ -1,0 +1,123 @@
+"""
+PreferenceMemory — 用户偏好记忆层。
+
+融合三类记忆：
+  1. 短期工作记忆（当前会话状态）
+  2. 长期用户画像（历史行为积累）
+  3. 隐式行为偏好（点击、停留、跳过信号）
+
+生产环境应接入 Redis（短期）+ 数据库（长期画像）。
+当前实现为内存 stub，接口与生产版本保持一致。
+"""
+
+from __future__ import annotations
+
+from datetime import datetime
+from typing import Optional
+
+from shopping_agent.common.types import ShoppingTask, UserProfile
+
+
+class PreferenceMemory:
+    def __init__(self):
+        # stub 存储，生产环境替换为 DB/Redis
+        self._profiles: dict[str, UserProfile] = {}
+        self._implicit_signals: dict[str, list[dict]] = {}
+
+    def load(self, user_id: str,
+             task: Optional[ShoppingTask] = None) -> UserProfile:
+        """
+        加载用户画像。
+        若用户无历史记录，返回空白画像（冷启动）。
+        """
+        profile = self._profiles.get(user_id)
+        if profile is None:
+            profile = UserProfile(user_id=user_id)
+            self._profiles[user_id] = profile
+
+        # 根据当前任务场景做上下文感知的偏好加权
+        if task:
+            profile = self._contextualize(profile, task)
+
+        return profile
+
+    def update_explicit(
+        self,
+        user_id: str,
+        signal_type: str,       # "purchase", "reject", "add_to_cart"
+        product_attrs: dict,    # {"brand": "Sony", "price": 2999, "category": "laptop"}
+        delta: float = 0.1,
+    ) -> None:
+        """
+        根据显式行为更新用户画像。
+        signal_type="purchase"/"add_to_cart" → 正向更新
+        signal_type="reject" → 负向更新
+        """
+        profile = self.load(user_id)
+        direction = 1.0 if signal_type in ("purchase", "add_to_cart") else -1.0
+
+        # 更新品牌权重
+        brand = product_attrs.get("brand")
+        if brand:
+            current = profile.brand_weights.get(brand, 0.5)
+            profile.brand_weights[brand] = max(0.0, min(1.0,
+                                               current + direction * delta))
+
+        # 更新品类亲和度
+        category = product_attrs.get("category")
+        if category and direction > 0:
+            profile.category_affinity[category] = (
+                profile.category_affinity.get(category, 0.0) + delta
+            )
+
+        # 更新价格敏感度（拒绝高价商品 → 提高敏感度）
+        price = product_attrs.get("price")
+        if price and signal_type == "reject":
+            # 简单启发：拒绝高于均值的商品说明价格敏感
+            profile.price_sensitivity = min(1.0,
+                                            profile.price_sensitivity + 0.05)
+
+        profile.last_updated = datetime.now()
+        self._profiles[user_id] = profile
+
+    def update_implicit(
+        self,
+        user_id: str,
+        signal_type: str,       # "dwell", "skip"
+        product_attrs: dict,
+        dwell_seconds: float = 0.0,
+    ) -> None:
+        """
+        记录隐式行为信号，用于软更新画像。
+        """
+        signals = self._implicit_signals.setdefault(user_id, [])
+        signals.append({
+            "signal_type": signal_type,
+            "product_attrs": product_attrs,
+            "dwell_seconds": dwell_seconds,
+            "timestamp": datetime.now().isoformat(),
+        })
+
+        # 简单规则：停留超过 30 秒视为正向隐式信号
+        if signal_type == "dwell" and dwell_seconds > 30:
+            self.update_explicit(user_id, "add_to_cart", product_attrs, delta=0.05)
+
+    def _contextualize(self, profile: UserProfile, task: ShoppingTask) -> UserProfile:
+        """
+        根据当前任务的隐式需求，临时调整画像权重。
+        不修改原始画像，返回调整副本。
+        """
+        import copy
+        ctx_profile = copy.deepcopy(profile)
+
+        # 出差场景：提高履约时效偏好
+        if any("出差" in need or "商务" in need for need in task.implicit_needs):
+            ctx_profile.prefer_fast_delivery = True
+
+        # 有硬性预算约束时，临时提高价格敏感度
+        budget = task.get_hard_constraints().get("budget_total")
+        if budget and budget < 1000:
+            ctx_profile.price_sensitivity = min(1.0,
+                                                ctx_profile.price_sensitivity + 0.2)
+
+        return ctx_profile
