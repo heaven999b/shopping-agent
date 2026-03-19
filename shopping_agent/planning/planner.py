@@ -61,6 +61,7 @@ class ConstraintAwarePlanner:
 
     def __init__(self, use_rl: bool = False):
         self._use_rl = use_rl
+        self._use_bundle_scoring = True
         self._rl_policy: Optional[RLPlanningPolicy] = None
         if use_rl:
             self._rl_policy = RLPlanningPolicy()
@@ -77,6 +78,9 @@ class ConstraintAwarePlanner:
     def set_rl_policy(self, policy: RLPlanningPolicy) -> None:
         self._rl_policy = policy
         self._use_rl = True
+
+    def set_bundle_scoring(self, enabled: bool) -> None:
+        self._use_bundle_scoring = enabled
 
     # ------------------------------------------------------------------
     # 主接口
@@ -112,9 +116,9 @@ class ConstraintAwarePlanner:
 
         # 2. 生成方案
         if self._use_rl and self._rl_policy is not None:
-            plans = self._plan_with_rl(task, slot_candidates, budget, user_profile)
+            plans = self._plan_with_rl(task, slot_candidates, candidate_graph, budget, user_profile)
         else:
-            plans = self._plan_heuristic(task, slot_candidates, budget, user_profile)
+            plans = self._plan_heuristic(task, slot_candidates, candidate_graph, budget, user_profile)
 
         if not plans:
             raise PlanningError("无法在约束范围内生成有效购物方案。")
@@ -154,6 +158,7 @@ class ConstraintAwarePlanner:
         self,
         task: ShoppingTask,
         slot_candidates: dict[str, list[Product]],
+        candidate_graph: dict[str, list[dict[str, Any]]],
         budget: Optional[float],
         user_profile: Optional[UserProfile],
     ) -> list[BundlePlan]:
@@ -167,7 +172,7 @@ class ConstraintAwarePlanner:
 
         # Tier 0: 主推
         plan0 = self._build_scored_plan(
-            task, slot_candidates, budget, user_profile,
+            task, slot_candidates, candidate_graph, budget, user_profile,
             strategy="best_composite", tier_name="主推方案"
         )
         if plan0:
@@ -175,7 +180,7 @@ class ConstraintAwarePlanner:
 
         # Tier 1: 省钱
         plan1 = self._build_scored_plan(
-            task, slot_candidates, budget, user_profile,
+            task, slot_candidates, candidate_graph, budget, user_profile,
             strategy="cheapest", tier_name="省钱方案"
         )
         if plan1 and (not plans or plan1.plan_id != plans[0].plan_id):
@@ -183,7 +188,7 @@ class ConstraintAwarePlanner:
 
         # Tier 2: 高评
         plan2 = self._build_scored_plan(
-            task, slot_candidates, budget, user_profile,
+            task, slot_candidates, candidate_graph, budget, user_profile,
             strategy="highest_rated", tier_name="高评方案"
         )
         if plan2 and all(p.plan_id != plan2.plan_id for p in plans):
@@ -195,6 +200,7 @@ class ConstraintAwarePlanner:
         self,
         task: ShoppingTask,
         slot_candidates: dict[str, list[Product]],
+        candidate_graph: dict[str, list[dict[str, Any]]],
         budget: Optional[float],
         user_profile: Optional[UserProfile],
         strategy: str,
@@ -252,8 +258,11 @@ class ConstraintAwarePlanner:
         style_coherence = self._style_coherence_score(items)
         scenario_fit = self._scenario_fit_score(task, items, user_profile)
         bundle_completeness = self._bundle_completeness_score(task, items)
+        required_slots = self._required_slots(task)
+        filled_slots = self._filled_slots(items)
         slot_coverage = self._slot_coverage(task, items)
-        compatibility_score = self._compatibility_score(items)
+        compatibility_score = self._compatibility_score(task, items, candidate_graph)
+        relation_coverage = self._relation_coverage_score(task, items, candidate_graph)
         budget_allocation = self._budget_allocation(items, budget)
         phased_options = self._build_phased_purchase_options(
             task, items, budget, user_profile
@@ -262,6 +271,21 @@ class ConstraintAwarePlanner:
         phased_purchase_score = self._phased_purchase_score(
             phased_options, total_price, budget, user_profile
         )
+        bundle_decision_score = self._bundle_decision_score(
+            avg_constraint=avg_constraint,
+            avg_preference=avg_preference,
+            avg_value=avg_value,
+            avg_persona=avg_persona,
+            style_coherence=style_coherence,
+            scenario_fit=scenario_fit,
+            bundle_completeness=bundle_completeness,
+            compatibility_score=compatibility_score,
+            relation_coverage=relation_coverage,
+            long_term_fit=long_term_fit,
+            phased_purchase_score=phased_purchase_score,
+        )
+        if not self._use_bundle_scoring:
+            bundle_decision_score = 0.0
 
         tradeoff_notes = self._build_tradeoff_notes(
             tier_name,
@@ -295,8 +319,12 @@ class ConstraintAwarePlanner:
             style_coherence_score=round(style_coherence, 3),
             scenario_fit_score=round(scenario_fit, 3),
             bundle_completeness_score=round(bundle_completeness, 3),
+            required_slots=required_slots,
+            filled_slots=filled_slots,
             slot_coverage=slot_coverage,
             compatibility_score=round(compatibility_score, 3),
+            relation_coverage_score=round(relation_coverage, 3),
+            bundle_decision_score=round(bundle_decision_score, 3),
             long_term_fit_score=round(long_term_fit, 3),
             phased_purchase_score=round(phased_purchase_score, 3),
             tradeoff_notes=tradeoff_notes,
@@ -370,6 +398,7 @@ class ConstraintAwarePlanner:
         self,
         task: ShoppingTask,
         slot_candidates: dict[str, list[Product]],
+        candidate_graph: dict[str, list[dict[str, Any]]],
         budget: Optional[float],
         user_profile: Optional[UserProfile],
     ) -> list[BundlePlan]:
@@ -394,7 +423,7 @@ class ConstraintAwarePlanner:
             product = self._select_by_rl_action(action, candidates, budget - budget_used, user_profile)
 
             if product is None:
-                return self._plan_heuristic(task, slot_candidates, budget, user_profile)
+                return self._plan_heuristic(task, slot_candidates, candidate_graph, budget, user_profile)
 
             budget_used += product.final_price
             scores = {
@@ -411,8 +440,8 @@ class ConstraintAwarePlanner:
                 alternatives=[p for p in candidates if p.product_id != product.product_id][:2],
             ))
 
-        rl_plan = self._assemble_plan(task, items, budget, "RL最优方案", user_profile)
-        backup = self._plan_heuristic(task, slot_candidates, budget, user_profile)
+        rl_plan = self._assemble_plan(task, items, candidate_graph, budget, "RL最优方案", user_profile)
+        backup = self._plan_heuristic(task, slot_candidates, candidate_graph, budget, user_profile)
         return ([rl_plan] if rl_plan else []) + backup
 
     def _select_by_rl_action(
@@ -540,6 +569,7 @@ class ConstraintAwarePlanner:
         self,
         task: ShoppingTask,
         items: list[PlanItem],
+        candidate_graph: dict[str, list[dict[str, Any]]],
         budget: float,
         tier_name: str,
         user_profile: Optional[UserProfile] = None,
@@ -558,8 +588,11 @@ class ConstraintAwarePlanner:
         style_coherence = self._style_coherence_score(items)
         scenario_fit = self._scenario_fit_score(task, items, user_profile)
         bundle_completeness = self._bundle_completeness_score(task, items)
+        required_slots = self._required_slots(task)
+        filled_slots = self._filled_slots(items)
         slot_coverage = self._slot_coverage(task, items)
-        compatibility_score = self._compatibility_score(items)
+        compatibility_score = self._compatibility_score(task, items, candidate_graph)
+        relation_coverage = self._relation_coverage_score(task, items, candidate_graph)
         budget_allocation = self._budget_allocation(items, budget)
         phased_options = self._build_phased_purchase_options(
             task, items, budget, user_profile
@@ -568,6 +601,21 @@ class ConstraintAwarePlanner:
         phased_purchase_score = self._phased_purchase_score(
             phased_options, total, budget, user_profile
         )
+        bundle_decision_score = self._bundle_decision_score(
+            avg_constraint=constraint_score,
+            avg_preference=preference_score,
+            avg_value=value_score,
+            avg_persona=persona_score,
+            style_coherence=style_coherence,
+            scenario_fit=scenario_fit,
+            bundle_completeness=bundle_completeness,
+            compatibility_score=compatibility_score,
+            relation_coverage=relation_coverage,
+            long_term_fit=long_term_fit,
+            phased_purchase_score=phased_purchase_score,
+        )
+        if not self._use_bundle_scoring:
+            bundle_decision_score = 0.0
         return BundlePlan(
             plan_id=str(uuid.uuid4()),
             task_id=task.task_id,
@@ -581,8 +629,12 @@ class ConstraintAwarePlanner:
             style_coherence_score=round(style_coherence, 3),
             scenario_fit_score=round(scenario_fit, 3),
             bundle_completeness_score=round(bundle_completeness, 3),
+            required_slots=required_slots,
+            filled_slots=filled_slots,
             slot_coverage=slot_coverage,
             compatibility_score=round(compatibility_score, 3),
+            relation_coverage_score=round(relation_coverage, 3),
+            bundle_decision_score=round(bundle_decision_score, 3),
             long_term_fit_score=round(long_term_fit, 3),
             phased_purchase_score=round(phased_purchase_score, 3),
             tradeoff_notes=self._build_tradeoff_notes(
@@ -756,9 +808,21 @@ class ConstraintAwarePlanner:
         return {category: category in filled_slots for category in task.categories}
 
     @staticmethod
-    def _compatibility_score(items: list[PlanItem]) -> float:
+    def _required_slots(task: ShoppingTask) -> list[str]:
+        return list(task.categories)
+
+    @staticmethod
+    def _filled_slots(items: list[PlanItem]) -> list[str]:
+        return [item.bundle_slot for item in items]
+
+    @staticmethod
+    def _compatibility_score(
+        task: ShoppingTask,
+        items: list[PlanItem],
+        candidate_graph: Optional[dict[str, list[dict[str, Any]]]] = None,
+    ) -> float:
         if len(items) <= 1:
-            return 1.0
+            return 1.0 if len(task.categories) <= 1 else 0.35
 
         slot_count = len({item.bundle_slot for item in items})
         product_count = len({item.product.product_id for item in items})
@@ -775,7 +839,113 @@ class ConstraintAwarePlanner:
             spread = max(delivery_days) - min(delivery_days)
             delivery_score = max(0.5, 1.0 - spread * 0.08)
 
-        return min(1.0, 0.45 * slot_ratio + 0.35 * product_ratio + 0.2 * delivery_score)
+        relation_score = 0.5
+        if candidate_graph:
+            pair_scores = []
+            for i, item_a in enumerate(items):
+                for item_b in items[i + 1:]:
+                    pair_scores.append(
+                        ConstraintAwarePlanner._pair_relation_score(
+                            item_a.product.product_id,
+                            item_b.product.product_id,
+                            candidate_graph,
+                        )
+                    )
+            if pair_scores:
+                relation_score = sum(pair_scores) / len(pair_scores)
+
+        return min(
+            1.0,
+            0.25 * slot_ratio + 0.2 * product_ratio + 0.15 * delivery_score + 0.4 * relation_score,
+        )
+
+    @classmethod
+    def _relation_coverage_score(
+        cls,
+        task: ShoppingTask,
+        items: list[PlanItem],
+        candidate_graph: Optional[dict[str, list[dict[str, Any]]]] = None,
+    ) -> float:
+        if len(task.categories) <= 1:
+            return 1.0
+        if len(items) <= 1:
+            return 0.0
+        if not candidate_graph:
+            return 0.25
+
+        pair_scores = []
+        for i, item_a in enumerate(items):
+            for item_b in items[i + 1:]:
+                raw_score = cls._pair_relation_score(
+                    item_a.product.product_id,
+                    item_b.product.product_id,
+                    candidate_graph,
+                )
+                normalized = max(0.0, min(1.0, (raw_score - 0.45) / 0.55))
+                pair_scores.append(normalized)
+        if not pair_scores:
+            return 0.0
+        return sum(pair_scores) / len(pair_scores)
+
+    @staticmethod
+    def _pair_relation_score(
+        product_a: str,
+        product_b: str,
+        candidate_graph: dict[str, list[dict[str, Any]]],
+    ) -> float:
+        edges = candidate_graph.get(product_a, [])
+        score = 0.45
+        for edge in edges:
+            if edge.get("target_id") != product_b:
+                continue
+            edge_type = edge.get("edge_type")
+            weight = float(edge.get("weight", 0.0))
+            if edge_type == "INCOMPATIBLE":
+                return 0.0
+            if edge_type == "COMPLEMENT":
+                score = max(score, 0.6 + weight * 0.3)
+            if edge_type == "STYLE_MATCH":
+                score = max(score, 0.58 + weight * 0.28)
+            if edge_type == "SUBSTITUTE":
+                score = max(score, 0.35)
+        reverse_edges = candidate_graph.get(product_b, [])
+        for edge in reverse_edges:
+            if edge.get("target_id") == product_a and edge.get("edge_type") == "INCOMPATIBLE":
+                return 0.0
+        return min(1.0, score)
+
+    @staticmethod
+    def _bundle_decision_score(
+        avg_constraint: float,
+        avg_preference: float,
+        avg_value: float,
+        avg_persona: float,
+        style_coherence: float,
+        scenario_fit: float,
+        bundle_completeness: float,
+        compatibility_score: float,
+        relation_coverage: float,
+        long_term_fit: float,
+        phased_purchase_score: float,
+    ) -> float:
+        base_score = (
+            avg_constraint * 0.16
+            + avg_preference * 0.08
+            + avg_value * 0.06
+            + avg_persona * 0.12
+            + style_coherence * 0.12
+            + scenario_fit * 0.1
+            + bundle_completeness * 0.12
+            + compatibility_score * 0.08
+            + relation_coverage * 0.11
+            + long_term_fit * 0.07
+            + phased_purchase_score * 0.05
+        )
+        bundle_gate = max(
+            0.2,
+            0.5 * bundle_completeness + 0.3 * relation_coverage + 0.2 * compatibility_score,
+        )
+        return min(1.0, base_score * bundle_gate)
 
     @staticmethod
     def _budget_allocation(items: list[PlanItem], budget: float) -> dict[str, float]:

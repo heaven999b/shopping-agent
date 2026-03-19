@@ -1277,5 +1277,372 @@
       "forbidden_violations": ["budget_exceed"],
       "gold_categories": ["monitor", "keyboard", "headset"]
     }
+  },
+  {
+    "task_id": "t055",
+    "query": "我已经有显示器了，想把桌搭补齐，再加键盘、鼠标和挂灯，预算2000，风格尽量统一",
+    "task_type": "bundle",
+    "task_family": "upgrade_path",
+    "categories": ["keyboard", "mouse", "desk_lamp"],
+    "constraints": {
+      "budget_total": {"value": 2000.0, "severity": "hard"}
+    },
+    "user_profile_overrides": {
+      "owned_items": [
+        {"product_id": "owned_monitor", "category": "monitor", "brand": "Dell"}
+      ],
+      "active_setups": {
+        "desk_setup": {
+          "owned": ["owned_monitor"],
+          "missing": ["keyboard", "mouse", "desk_lamp"],
+          "style": "clean",
+          "next_best_upgrade": "desk_lamp"
+        }
+      },
+      "upgrade_stage": {"desk_setup": "growing"},
+      "aesthetic_preference": {"clean": 0.9, "premium": 0.5}
+    },
+    "uncertainty_slots": {},
+    "ambiguity_level": 0.2,
+    "clarification_needed": false,
+    "task_difficulty": "medium",
+    "expected": {
+      "feasible": true,
+      "min_results": 1,
+      "budget_satisfied": true,
+      "required_attrs": [],
+      "acceptable_budget_range": [0, 2000],
+      "forbidden_violations": ["budget_exceed"],
+      "gold_categories": ["keyboard", "mouse", "desk_lamp"]
+    }
+  },
+  {
+    "task_id": "t056",
+    "query": "桌搭两件套：4K显示器和挂灯，预算2600，如果超预算就先上显示器",
+    "task_type": "bundle",
+    "task_family": "phased_purchase",
+    "categories": ["monitor", "desk_lamp"],
+    "constraints": {
+      "budget_total": {"value": 2600.0, "severity": "hard"},
+      "resolution": {"value": "3840x2160", "severity": "soft"}
+    },
+    "user_profile_overrides": {
+      "purchase_rhythm": {"avg_spend": 850.0, "purchase_count": 3, "cadence": "incremental"}
+    },
+    "uncertainty_slots": {},
+    "ambiguity_level": 0.1,
+    "clarification_needed": false,
+    "task_difficulty": "medium",
+    "expected": {
+      "feasible": true,
+      "min_results": 1,
+      "budget_satisfied": true,
+      "required_attrs": [],
+      "acceptable_budget_range": [0, 2600],
+      "forbidden_violations": ["budget_exceed"],
+      "gold_categories": ["monitor", "desk_lamp"]
+    }
+  },
+  {
+    "task_id": "t057",
+    "query": "办公桌搭想低调专业一点，显示器、键盘、鼠标都要，预算3500，预算实在不够可以先牺牲鼠标档次",
+    "task_type": "bundle",
+    "task_family": "bundle_noise",
+    "categories": ["monitor", "keyboard", "mouse"],
+    "constraints": {
+      "budget_total": {"value": 3500.0, "severity": "hard"},
+      "wireless": {"value": true, "severity": "soft"}
+    },
+    "user_profile_overrides": {
+      "identity_goal": {"professional": 0.9},
+      "aesthetic_preference": {"clean": 0.85, "premium": 0.55}
+    },
+    "uncertainty_slots": {},
+    "ambiguity_level": 0.2,
+    "clarification_needed": false,
+    "task_difficulty": "hard",
+    "expected": {
+      "feasible": true,
+      "min_results": 1,
+      "budget_satisfied": true,
+      "required_attrs": [],
+      "acceptable_budget_range": [0, 3500],
+      "forbidden_violations": ["budget_exceed"],
+      "gold_categories": ["monitor", "keyboard", "mouse"]
+    }
+  },
+  {
+    "task_id": "t058",
+    "query": "我原本只想买键盘和鼠标，但如果整体搭配更值，也可以把挂灯一起算进去，预算1500",
+    "task_type": "bundle",
+    "task_family": "clarification_heavy",
+    "categories": ["keyboard", "mouse", "desk_lamp"],
+    "constraints": {
+      "budget_total": {"value": 1500.0, "severity": "hard"}
+    },
+    "uncertainty_slots": {
+      "include_desk_lamp": null,
+      "style": null
+    },
+    "ambiguity_level": 0.4,
+    "clarification_needed": true,
+    "task_difficulty": "medium",
+    "expected": {
+      "feasible": true,
+      "min_results": 1,
+      "budget_satisfied": true,
+      "required_attrs": [],
+      "acceptable_budget_range": [0, 1500],
+      "forbidden_violations": ["budget_exceed"],
+      "gold_categories": ["keyboard", "mouse", "desk_lamp"]
+    }
+  },
+  {
+    "task_id": "t059",
+    "query": "先给我做一套远程办公组合：笔记本、耳机、鼠标，预算7000，如果耳机太贵可以下次再补",
+    "task_type": "bundle",
+    "task_family": "phased_purchase",
+    "categories": ["laptop", "headset", "mouse"],
+    "constraints": {
+      "budget_total": {"value": 7000.0, "severity": "hard"},
+      "noise_cancelling": {"value": true, "severity": "soft"}
+    },
+    "user_profile_overrides": {
+      "purchase_rhythm": {"avg_spend": 1200.0, "purchase_count": 5, "cadence": "incremental"},
+      "identity_goal": {"professional": 0.8, "traveler": 0.6}
+    },
+    "uncertainty_slots": {},
+    "ambiguity_level": 0.2,
+    "clarification_needed": false,
+    "task_difficulty": "hard",
+    "expected": {
+      "feasible": true,
+      "min_results": 1,
+      "budget_satisfied": true,
+      "required_attrs": [],
+      "acceptable_budget_range": [0, 7000],
+      "forbidden_violations": ["budget_exceed"],
+      "gold_categories": ["laptop", "headset", "mouse"]
+    }
+  },
+  {
+    "task_id": "t060",
+    "query": "显示器和键盘我都想要更有质感的，预算从3000加到4000也能接受，帮我规划升级顺序",
+    "task_type": "bundle",
+    "task_family": "drift",
+    "categories": ["monitor", "keyboard"],
+    "constraints": {
+      "budget_total": {"value": 3000.0, "severity": "hard"}
+    },
+    "user_profile_overrides": {
+      "recent_persona_drift": {
+        "detected": true,
+        "type": ["budget_drift", "identity_drift"],
+        "magnitude": 0.45,
+        "confidence": 0.86
+      },
+      "budget_sensitivity_profile": {"strict": 0.2, "premium": 0.8}
+    },
+    "uncertainty_slots": {
+      "budget_flexibility": null
+    },
+    "ambiguity_level": 0.3,
+    "clarification_needed": true,
+    "task_difficulty": "hard",
+    "expected": {
+      "feasible": true,
+      "min_results": 1,
+      "budget_satisfied": true,
+      "required_attrs": [],
+      "acceptable_budget_range": [0, 4000],
+      "forbidden_violations": ["budget_exceed"],
+      "gold_categories": ["monitor", "keyboard"],
+      "drift_expected": true,
+      "drift_type": "budget_drift"
+    }
+  },
+  {
+    "task_id": "t061",
+    "query": "我已经有鼠标和挂灯了，这次只补显示器和键盘，但以后还会想升级成更统一的桌搭，预算4500",
+    "task_type": "bundle",
+    "task_family": "upgrade_path",
+    "categories": ["monitor", "keyboard"],
+    "constraints": {
+      "budget_total": {"value": 4500.0, "severity": "hard"}
+    },
+    "user_profile_overrides": {
+      "owned_items": [
+        {"product_id": "owned_mouse", "category": "mouse", "brand": "Logitech"},
+        {"product_id": "owned_lamp", "category": "desk_lamp", "brand": "BenQ"}
+      ],
+      "active_setups": {
+        "desk_setup": {
+          "owned": ["owned_mouse", "owned_lamp"],
+          "missing": ["monitor", "keyboard"],
+          "style": "clean",
+          "next_best_upgrade": "monitor"
+        }
+      },
+      "upgrade_stage": {"desk_setup": "starter"}
+    },
+    "uncertainty_slots": {},
+    "ambiguity_level": 0.1,
+    "clarification_needed": false,
+    "task_difficulty": "medium",
+    "expected": {
+      "feasible": true,
+      "min_results": 1,
+      "budget_satisfied": true,
+      "required_attrs": [],
+      "acceptable_budget_range": [0, 4500],
+      "forbidden_violations": ["budget_exceed"],
+      "gold_categories": ["monitor", "keyboard"]
+    }
+  },
+  {
+    "task_id": "t062",
+    "query": "给新办公室配一套完整桌搭：显示器、键盘、鼠标、挂灯、椅子，预算6500，如果有缺货请给我替代路线",
+    "task_type": "bundle",
+    "task_family": "bundle_noise",
+    "categories": ["monitor", "keyboard", "mouse", "desk_lamp", "chair"],
+    "constraints": {
+      "budget_total": {"value": 6500.0, "severity": "hard"}
+    },
+    "uncertainty_slots": {},
+    "ambiguity_level": 0.1,
+    "clarification_needed": false,
+    "task_difficulty": "hard",
+    "expected": {
+      "feasible": true,
+      "min_results": 1,
+      "budget_satisfied": true,
+      "required_attrs": [],
+      "acceptable_budget_range": [0, 6500],
+      "forbidden_violations": ["budget_exceed"],
+      "gold_categories": ["monitor", "keyboard", "mouse", "desk_lamp", "chair"]
+    }
+  },
+  {
+    "task_id": "t063",
+    "query": "宿舍学习桌只剩1200预算了，键盘、鼠标、台灯怎么配更完整？如果不够就告诉我先买什么",
+    "task_type": "bundle",
+    "task_family": "phased_purchase",
+    "categories": ["keyboard", "mouse", "desk_lamp"],
+    "constraints": {
+      "budget_total": {"value": 1200.0, "severity": "hard"}
+    },
+    "user_profile_overrides": {
+      "purchase_rhythm": {"avg_spend": 350.0, "purchase_count": 2, "cadence": "incremental"}
+    },
+    "uncertainty_slots": {},
+    "ambiguity_level": 0.2,
+    "clarification_needed": false,
+    "task_difficulty": "medium",
+    "expected": {
+      "feasible": true,
+      "min_results": 1,
+      "budget_satisfied": true,
+      "required_attrs": [],
+      "acceptable_budget_range": [0, 1200],
+      "forbidden_violations": ["budget_exceed"],
+      "gold_categories": ["keyboard", "mouse", "desk_lamp"]
+    }
+  },
+  {
+    "task_id": "t064",
+    "query": "我想做一套极简黑白桌搭，显示器、键盘、鼠标都要低调统一，预算5000",
+    "task_type": "bundle",
+    "task_family": "bundle_noise",
+    "categories": ["monitor", "keyboard", "mouse"],
+    "constraints": {
+      "budget_total": {"value": 5000.0, "severity": "hard"}
+    },
+    "user_profile_overrides": {
+      "aesthetic_preference": {"clean": 0.95, "premium": 0.6},
+      "identity_goal": {"professional": 0.8}
+    },
+    "uncertainty_slots": {},
+    "ambiguity_level": 0.1,
+    "clarification_needed": false,
+    "task_difficulty": "medium",
+    "expected": {
+      "feasible": true,
+      "min_results": 1,
+      "budget_satisfied": true,
+      "required_attrs": [],
+      "acceptable_budget_range": [0, 5000],
+      "forbidden_violations": ["budget_exceed"],
+      "gold_categories": ["monitor", "keyboard", "mouse"]
+    }
+  },
+  {
+    "task_id": "t065",
+    "query": "一开始我只想买鼠标和键盘，但现在觉得显示器也该一起升级，你按新的方向重新做一套，预算4500",
+    "task_type": "bundle",
+    "task_family": "drift",
+    "categories": ["monitor", "keyboard", "mouse"],
+    "constraints": {
+      "budget_total": {"value": 4500.0, "severity": "hard"}
+    },
+    "user_profile_overrides": {
+      "recent_persona_drift": {
+        "detected": true,
+        "type": ["identity_drift"],
+        "magnitude": 0.31,
+        "confidence": 0.79
+      },
+      "active_setups": {
+        "desk_setup": {
+          "owned": [],
+          "missing": ["monitor", "keyboard", "mouse"],
+          "style": "clean",
+          "next_best_upgrade": "monitor"
+        }
+      }
+    },
+    "uncertainty_slots": {
+      "include_monitor": null
+    },
+    "ambiguity_level": 0.35,
+    "clarification_needed": true,
+    "task_difficulty": "hard",
+    "expected": {
+      "feasible": true,
+      "min_results": 1,
+      "budget_satisfied": true,
+      "required_attrs": [],
+      "acceptable_budget_range": [0, 4500],
+      "forbidden_violations": ["budget_exceed"],
+      "gold_categories": ["monitor", "keyboard", "mouse"],
+      "drift_expected": true,
+      "drift_type": "identity_drift"
+    }
+  },
+  {
+    "task_id": "t066",
+    "query": "给内容创作做一套移动办公组合：笔记本、耳机、鼠标，优先轻便和稳定，预算8000，最好能分两阶段买",
+    "task_type": "bundle",
+    "task_family": "phased_purchase",
+    "categories": ["laptop", "headset", "mouse"],
+    "constraints": {
+      "budget_total": {"value": 8000.0, "severity": "hard"}
+    },
+    "user_profile_overrides": {
+      "identity_goal": {"creator": 0.85, "traveler": 0.7},
+      "purchase_rhythm": {"avg_spend": 1400.0, "purchase_count": 6, "cadence": "incremental"}
+    },
+    "uncertainty_slots": {},
+    "ambiguity_level": 0.2,
+    "clarification_needed": false,
+    "task_difficulty": "hard",
+    "expected": {
+      "feasible": true,
+      "min_results": 1,
+      "budget_satisfied": true,
+      "required_attrs": [],
+      "acceptable_budget_range": [0, 8000],
+      "forbidden_violations": ["budget_exceed"],
+      "gold_categories": ["laptop", "headset", "mouse"]
+    }
   }
 ]

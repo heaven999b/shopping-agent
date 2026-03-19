@@ -190,6 +190,36 @@ def _gold_categories_for_eval(
     )
 
 
+def _relation_coverage_for_eval(
+    original_raw: dict[str, Any],
+    selected_plan,
+) -> float:
+    gold_categories = (
+        original_raw.get("expected", {}).get("gold_categories")
+        or original_raw.get("categories", [])
+    )
+    if len(gold_categories) <= 1:
+        return getattr(selected_plan, "relation_coverage_score", 1.0)
+    if len(getattr(selected_plan, "items", [])) <= 1:
+        return 0.0
+    return getattr(selected_plan, "relation_coverage_score", 0.0)
+
+
+def _bundle_score_for_eval(
+    selected_plan,
+    bundle_completeness_score: float,
+    relation_coverage_score: float,
+) -> float:
+    raw_score = float(getattr(selected_plan, "bundle_decision_score", 0.0))
+    if raw_score <= 0:
+        return 0.0
+    gate = max(
+        0.15,
+        bundle_completeness_score * (0.25 + 0.75 * relation_coverage_score),
+    )
+    return min(1.0, raw_score * gate)
+
+
 def _apply_user_profile_overrides(profile: UserProfile, overrides: dict[str, Any]) -> UserProfile:
     for key, value in overrides.items():
         if hasattr(profile, key):
@@ -368,8 +398,9 @@ class BenchmarkRunner:
                 result.compatibility_score = getattr(
                     state.selected_plan, "compatibility_score", 0.0
                 )
-                result.bundle_decision_score = getattr(
-                    state.selected_plan, "bundle_decision_score", 0.0
+                result.relation_coverage_score = _relation_coverage_for_eval(
+                    original_raw,
+                    state.selected_plan,
                 )
                 result.long_term_fit_score = state.selected_plan.long_term_fit_score
                 result.phased_purchase_score = state.selected_plan.phased_purchase_score
@@ -397,6 +428,11 @@ class BenchmarkRunner:
                     gold_categories,
                 )
                 result.bundle_completeness_score = result.plan_category_match
+                result.bundle_decision_score = _bundle_score_for_eval(
+                    state.selected_plan,
+                    result.bundle_completeness_score,
+                    result.relation_coverage_score,
+                )
                 self._populate_drift_diagnostics(result, state, drift_type)
 
                 # Plan diversity: price variation coefficient across candidate plans
@@ -612,8 +648,9 @@ class BenchmarkRunner:
             result.compatibility_score = getattr(
                 state.selected_plan, "compatibility_score", 0.0
             )
-            result.bundle_decision_score = getattr(
-                state.selected_plan, "bundle_decision_score", 0.0
+            result.relation_coverage_score = _relation_coverage_for_eval(
+                original_raw,
+                state.selected_plan,
             )
             result.long_term_fit_score = state.selected_plan.long_term_fit_score
             result.phased_purchase_score = state.selected_plan.phased_purchase_score
@@ -640,6 +677,11 @@ class BenchmarkRunner:
                 gold_categories,
             )
             result.bundle_completeness_score = result.plan_category_match
+            result.bundle_decision_score = _bundle_score_for_eval(
+                state.selected_plan,
+                result.bundle_completeness_score,
+                result.relation_coverage_score,
+            )
 
             all_plans = state.candidate_plans
             if len(all_plans) >= 2:

@@ -255,6 +255,7 @@ class RLTrainer:
                 constraint_reduction=unc_reduction,
                 user_dropout_penalty=dropout_prob,
             ).total
+            reward += self._compute_drift_clarification_bonus(action.slot, user_pref)
 
             # 用户流失检查
             if np.random.random() < dropout_prob * 0.3:
@@ -297,6 +298,8 @@ class RLTrainer:
         ep.total_turns = len(ep.clarification_transitions)
         ep.intent_resolution_score = self._compute_intent_resolution(task, ep.total_turns)
         ep.phase_completion_score = self._compute_phase_completion(ep, user_dropped_out)
+        ep.drift_detected = user_pref.drift_type is not None
+        ep.drift_adaptation_score = self._compute_drift_adaptation(task, user_pref, ep)
         return ep
 
     # ---------------------------------------------------------------------------
@@ -353,6 +356,8 @@ class RLTrainer:
         avg_intent_resolution = np.mean([ep.intent_resolution_score for ep in episodes])
         avg_execution_readiness = np.mean([ep.execution_readiness_score for ep in episodes])
         avg_phase_completion = np.mean([ep.phase_completion_score for ep in episodes])
+        avg_drift_adaptation = np.mean([ep.drift_adaptation_score for ep in episodes])
+        drift_detection_rate = np.mean([float(ep.drift_detected) for ep in episodes])
 
         return {
             # Actor losses（使用 GAE advantage 而非原始 G_t）
@@ -370,6 +375,8 @@ class RLTrainer:
             "avg_intent_resolution_score": float(avg_intent_resolution),
             "avg_execution_readiness_score": float(avg_execution_readiness),
             "avg_phase_completion_score": float(avg_phase_completion),
+            "avg_drift_adaptation_score": float(avg_drift_adaptation),
+            "drift_detection_rate": float(drift_detection_rate),
             "num_episodes": len(episodes),
         }
 
@@ -399,6 +406,8 @@ class RLTrainer:
             "avg_intent_resolution_score": float(np.mean([ep.intent_resolution_score for ep in episodes])),
             "avg_execution_readiness_score": float(np.mean([ep.execution_readiness_score for ep in episodes])),
             "avg_phase_completion_score": float(np.mean([ep.phase_completion_score for ep in episodes])),
+            "avg_drift_adaptation_score": float(np.mean([ep.drift_adaptation_score for ep in episodes])),
+            "drift_detection_rate": float(np.mean([float(ep.drift_detected) for ep in episodes])),
             "num_episodes": num_episodes,
         }
 
@@ -574,6 +583,57 @@ class RLTrainer:
         if user_dropped_out:
             completed = min(completed, 2.0)
         return float(completed / max_phases)
+
+    @staticmethod
+    def _compute_drift_clarification_bonus(
+        slot: Optional[str],
+        user_pref: HiddenUserPreference,
+    ) -> float:
+        if slot is None or user_pref.drift_type is None:
+            return 0.0
+        drift_slot_map = {
+            "budget_drift": "budget_total",
+            "style_drift": "style",
+            "brand_drift": "brand_preference",
+        }
+        target_slot = drift_slot_map.get(user_pref.drift_type)
+        if slot != target_slot:
+            return 0.0
+        return 0.18 + 0.12 * user_pref.drift_strength
+
+    @staticmethod
+    def _compute_drift_adaptation(
+        task: ShoppingTask,
+        user_pref: HiddenUserPreference,
+        ep: Episode,
+    ) -> float:
+        if user_pref.drift_type is None:
+            return 1.0
+
+        drift_slot_map = {
+            "budget_drift": "budget_total",
+            "style_drift": "style",
+            "brand_drift": "brand_preference",
+        }
+        target_slot = drift_slot_map.get(user_pref.drift_type)
+        slot_known = (
+            target_slot is not None
+            and task.uncertainty_slots.get(target_slot) not in (None, "uncertain")
+        )
+        asked_slots = {
+            t.action.slot
+            for t in ep.clarification_transitions
+            if getattr(t.action, "slot", None)
+        }
+        asked_relevant = target_slot in asked_slots if target_slot else False
+        base = 0.25
+        if slot_known:
+            base += 0.45
+        if asked_relevant:
+            base += 0.2
+        if ep.final_task_success:
+            base += 0.1
+        return float(min(1.0, base))
 
     def _simulate_planning(
         self, task: ShoppingTask, user_pref: HiddenUserPreference, ep: Episode

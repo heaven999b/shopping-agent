@@ -27,6 +27,7 @@ from shopping_agent.common.types import BundlePlan, CandidatePlan, PlanItem, Pro
 _COMPLEMENT_RULES: list[tuple[str, str]] = [
     ("monitor", "keyboard"),
     ("monitor", "mouse"),
+    ("monitor", "desk_lamp"),
     ("keyboard", "mouse"),
     ("laptop", "mouse"),
     ("laptop", "bag"),
@@ -81,6 +82,9 @@ class CandidateGraphBuilder:
         # 建立 COMPLEMENT 边（跨品类互补）
         self._add_complement_edges(graph, category_buckets)
 
+        # 建立 STYLE_MATCH 边（风格/身份表达一致）
+        self._add_style_match_edges(graph, trimmed_products)
+
         # 建立 INCOMPATIBLE 边（不兼容检测）
         self._add_incompatible_edges(graph, trimmed_products)
 
@@ -134,6 +138,46 @@ class CandidateGraphBuilder:
                         "weight": 0.7,
                         "reason": f"{cat_a} 和 {cat_b} 常一起购买",
                     })
+                    graph[p_b.product_id].append({
+                        "target_id": p_a.product_id,
+                        "edge_type": "COMPLEMENT",
+                        "weight": 0.7,
+                        "reason": f"{cat_b} 和 {cat_a} 常一起购买",
+                    })
+
+    def _add_style_match_edges(
+        self,
+        graph: dict[str, list[dict[str, Any]]],
+        products: list[Product],
+    ) -> None:
+        for i, p_a in enumerate(products):
+            tags_a = p_a.persona_tags or {}
+            style_a = set(tags_a.get("style_signal", []))
+            identity_a = set(tags_a.get("identity_fit", []))
+            if not style_a and not identity_a:
+                continue
+            for p_b in products[i + 1:]:
+                if p_a.category == p_b.category:
+                    continue
+                tags_b = p_b.persona_tags or {}
+                style_b = set(tags_b.get("style_signal", []))
+                identity_b = set(tags_b.get("identity_fit", []))
+                overlap = len(style_a & style_b) + len(identity_a & identity_b)
+                if overlap <= 0:
+                    continue
+                weight = min(1.0, 0.45 + overlap * 0.18)
+                graph[p_a.product_id].append({
+                    "target_id": p_b.product_id,
+                    "edge_type": "STYLE_MATCH",
+                    "weight": weight,
+                    "reason": "风格与身份表达一致，适合作为同一路线组合",
+                })
+                graph[p_b.product_id].append({
+                    "target_id": p_a.product_id,
+                    "edge_type": "STYLE_MATCH",
+                    "weight": weight,
+                    "reason": "风格与身份表达一致，适合作为同一路线组合",
+                })
 
     def _add_incompatible_edges(
         self,
@@ -291,6 +335,8 @@ class GraphBasedRecovery:
                 style_coherence_score=plan.style_coherence_score,
                 scenario_fit_score=plan.scenario_fit_score,
                 bundle_completeness_score=plan.bundle_completeness_score,
+                required_slots=plan.required_slots,
+                filled_slots=plan.filled_slots,
                 long_term_fit_score=plan.long_term_fit_score,
                 phased_purchase_score=plan.phased_purchase_score,
                 persona_summary=plan.persona_summary,
@@ -300,6 +346,8 @@ class GraphBasedRecovery:
                 phased_purchase_options=plan.phased_purchase_options,
                 slot_coverage=plan.slot_coverage,
                 compatibility_score=plan.compatibility_score,
+                relation_coverage_score=getattr(plan, "relation_coverage_score", 0.0),
+                bundle_decision_score=plan.bundle_decision_score,
                 phased_upgrade_plan=plan.phased_upgrade_plan,
             )
         return CandidatePlan(**common_kwargs)

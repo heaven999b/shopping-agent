@@ -103,6 +103,9 @@ class TestOrchestratorPersistence:
 
         assert "workspace" in response
         assert response["workspace"]["title"] == "办公桌搭补齐方案"
+        assert response["plan"]["bundle_type"] == "bundle_plan"
+        assert "bundle_decision_score" in response["plan"]
+        assert "compatibility_score" in response["plan"]
         artifact_types = {artifact["artifact_type"] for artifact in response["workspace"]["artifacts"]}
         assert "growth_snapshot" in artifact_types
         assert "bundle_recommendation" in artifact_types

@@ -229,7 +229,43 @@ class HybridRetriever:
             if user_profile and budget:
                 sensitivity = getattr(user_profile, "price_sensitivity", 0.5)
                 price_penalty = sensitivity * (p.final_price / budget) * 0.2
+            persona_bonus = self._persona_alignment_score(p, user_profile)
 
-            return rating_score + brand_bonus - price_penalty
+            return rating_score + brand_bonus + persona_bonus - price_penalty
 
         return sorted(candidates, key=score, reverse=True)
+
+    def _persona_alignment_score(
+        self,
+        product: Product,
+        user_profile: Optional[UserProfile],
+    ) -> float:
+        if user_profile is None:
+            return 0.0
+
+        tags = product.persona_tags or {}
+        score = 0.0
+
+        identity_pref = getattr(user_profile, "identity_goal", {})
+        for tag in tags.get("identity_fit", []):
+            score += identity_pref.get(tag, 0.0) * 0.15
+
+        aesthetic_pref = getattr(user_profile, "aesthetic_preference", {})
+        for tag in tags.get("style_signal", []):
+            score += aesthetic_pref.get(tag, 0.0) * 0.12
+
+        brand_pref = getattr(user_profile, "brand_orientation", {})
+        symbolic_value = tags.get("symbolic_value", "utilitarian")
+        if symbolic_value == "taste_signaling":
+            score += brand_pref.get("brand_signal", 0.0) * 0.1
+        if symbolic_value == "utilitarian":
+            score += brand_pref.get("function_first", 0.0) * 0.08
+
+        budget_profile = getattr(user_profile, "budget_sensitivity_profile", {})
+        if product.final_price >= 1800:
+            score += budget_profile.get("premium", 0.0) * 0.08
+        elif product.final_price <= 800:
+            score += budget_profile.get("strict", 0.0) * 0.08
+
+        stability = getattr(user_profile, "persona_stability", 0.5)
+        return score * max(0.4, min(1.0, stability))

@@ -68,6 +68,72 @@ class PreferenceUpdater:
         old_budget = context.get("old_budget")
         new_budget = context.get("new_budget")
         if old_budget and new_budget and new_budget > old_budget:
+            before = {
+                "price_sensitivity": profile.price_sensitivity,
+                "budget_sensitivity_profile": dict(profile.budget_sensitivity_profile),
+            }
             profile.price_sensitivity = max(0.0, profile.price_sensitivity - 0.05)
+            current = profile.budget_sensitivity_profile.get("premium", 0.0)
+            profile.budget_sensitivity_profile["premium"] = min(1.0, current + 0.1)
+            strict_current = profile.budget_sensitivity_profile.get("strict", 0.0)
+            profile.budget_sensitivity_profile["strict"] = max(0.0, strict_current - 0.08)
+            self._memory.register_persona_drift(
+                user_id=user_id,
+                drift_type="budget_drift",
+                evidence=f"预算从{old_budget}调整到{new_budget}",
+                magnitude=min(1.0, (new_budget - old_budget) / max(old_budget, 1)),
+                before=before,
+                after={
+                    "price_sensitivity": profile.price_sensitivity,
+                    "budget_sensitivity_profile": dict(profile.budget_sensitivity_profile),
+                    "target": "premium",
+                },
+                profile=profile,
+            )
+
+        old_style = context.get("old_style")
+        new_style = context.get("new_style")
+        if new_style and new_style != old_style:
+            current = profile.aesthetic_preference.get(new_style, 0.0)
+            profile.aesthetic_preference[new_style] = min(1.0, current + 0.12)
+            self._memory.register_persona_drift(
+                user_id=user_id,
+                drift_type="style_drift",
+                evidence=f"风格偏好从{old_style or '未指定'}转向{new_style}",
+                magnitude=0.35,
+                before={"aesthetic_preference": dict(profile.aesthetic_preference)},
+                after={"aesthetic_preference": dict(profile.aesthetic_preference), "target": new_style},
+                profile=profile,
+            )
+
+        old_identity = context.get("old_identity_goal")
+        new_identity = context.get("new_identity_goal")
+        if new_identity and new_identity != old_identity:
+            current = profile.identity_goal.get(new_identity, 0.0)
+            profile.identity_goal[new_identity] = min(1.0, current + 0.12)
+            self._memory.register_persona_drift(
+                user_id=user_id,
+                drift_type="identity_drift",
+                evidence=f"身份表达从{old_identity or '未指定'}转向{new_identity}",
+                magnitude=0.4,
+                before={"identity_goal": dict(profile.identity_goal)},
+                after={"identity_goal": dict(profile.identity_goal), "target": new_identity},
+                profile=profile,
+            )
+
+        old_brand = context.get("old_brand_orientation")
+        new_brand = context.get("new_brand_orientation")
+        if new_brand and new_brand != old_brand:
+            current = profile.brand_orientation.get(new_brand, 0.0)
+            profile.brand_orientation[new_brand] = min(1.0, current + 0.12)
+            self._memory.register_persona_drift(
+                user_id=user_id,
+                drift_type="brand_drift",
+                evidence=f"品牌取向从{old_brand or '未指定'}转向{new_brand}",
+                magnitude=0.3,
+                before={"brand_orientation": dict(profile.brand_orientation)},
+                after={"brand_orientation": dict(profile.brand_orientation), "target": new_brand},
+                profile=profile,
+            )
 
         self._memory.save(profile)

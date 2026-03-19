@@ -361,13 +361,23 @@ class BundlePlan(CandidatePlan):
     为兼容历史接口，BundlePlan 继承 CandidatePlan；
     旧模块仍可按 CandidatePlan 消费，新链路可显式依赖 BundlePlan。
     """
+    required_slots: list[str] = field(default_factory=list)
+    filled_slots: list[str] = field(default_factory=list)
     slot_coverage: dict[str, bool] = field(default_factory=dict)
     compatibility_score: float = 0.0
+    relation_coverage_score: float = 0.0
+    bundle_decision_score: float = 0.0
     phased_upgrade_plan: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def is_bundle_native(self) -> bool:
         return True
+
+    @property
+    def overall_score(self) -> float:
+        if self.bundle_decision_score > 0:
+            return self.bundle_decision_score
+        return super().overall_score
 
 
 @dataclass

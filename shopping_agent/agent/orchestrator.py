@@ -683,12 +683,26 @@ class ShoppingAgentOrchestrator:
                 "plan_id": state.selected_plan.plan_id,
                 "net_price": state.selected_plan.net_price,
                 "overall_score": round(state.selected_plan.overall_score, 3),
+                "bundle_type": state.selected_plan.bundle_type,
                 "items": [
                     {"slot": item.bundle_slot, "product": item.product.title,
                      "price": item.product.final_price}
                     for item in state.selected_plan.items
                 ],
             }
+            if hasattr(state.selected_plan, "bundle_decision_score"):
+                result["plan"]["bundle_decision_score"] = round(
+                    getattr(state.selected_plan, "bundle_decision_score", 0.0), 3
+                )
+                result["plan"]["compatibility_score"] = round(
+                    getattr(state.selected_plan, "compatibility_score", 0.0), 3
+                )
+                result["plan"]["relation_coverage_score"] = round(
+                    getattr(state.selected_plan, "relation_coverage_score", 0.0), 3
+                )
+                result["plan"]["slot_coverage"] = getattr(
+                    state.selected_plan, "slot_coverage", {}
+                )
         if state.current_workspace:
             result["workspace"] = self._serialize_workspace(state.current_workspace)
         return result
@@ -710,6 +724,14 @@ class ShoppingAgentOrchestrator:
             "objective": plan.bundle_objective,
             "net_price": round(plan.net_price, 2),
             "overall_score": round(plan.overall_score, 3),
+            "bundle_decision_score": round(getattr(plan, "bundle_decision_score", 0.0), 3),
+            "compatibility_score": round(getattr(plan, "compatibility_score", 0.0), 3),
+            "relation_coverage_score": round(
+                getattr(plan, "relation_coverage_score", 0.0), 3
+            ),
+            "slot_coverage": getattr(plan, "slot_coverage", {}),
+            "required_slots": getattr(plan, "required_slots", []),
+            "filled_slots": getattr(plan, "filled_slots", []),
             "budget_allocation": plan.budget_allocation,
             "items": [
                 {

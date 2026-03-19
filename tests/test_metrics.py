@@ -40,6 +40,7 @@ def make_result(
     style_coherence_score: float = 0.0,
     bundle_completeness_score: float = 0.0,
     compatibility_score: float = 0.0,
+    relation_coverage_score: float = 0.0,
     bundle_decision_score: float = 0.0,
     long_term_fit_score: float = 0.0,
     phased_purchase_score: float = 0.0,
@@ -78,6 +79,7 @@ def make_result(
         style_coherence_score=style_coherence_score,
         bundle_completeness_score=bundle_completeness_score,
         compatibility_score=compatibility_score,
+        relation_coverage_score=relation_coverage_score,
         bundle_decision_score=bundle_decision_score,
         long_term_fit_score=long_term_fit_score,
         phased_purchase_score=phased_purchase_score,
@@ -165,6 +167,7 @@ class TestMetricsComputer:
                 style_coherence_score=0.9,
                 bundle_completeness_score=1.0,
                 compatibility_score=0.8,
+                relation_coverage_score=0.7,
                 bundle_decision_score=0.75,
                 long_term_fit_score=0.8,
                 phased_purchase_score=0.7,
@@ -188,6 +191,7 @@ class TestMetricsComputer:
                 style_coherence_score=0.4,
                 bundle_completeness_score=0.6,
                 compatibility_score=0.5,
+                relation_coverage_score=0.2,
                 bundle_decision_score=0.45,
                 long_term_fit_score=0.5,
                 phased_purchase_score=0.4,
@@ -208,6 +212,7 @@ class TestMetricsComputer:
         assert metrics["avg_style_coherence_score"] == pytest.approx(0.65, abs=1e-4)
         assert metrics["avg_bundle_completeness_score"] == pytest.approx(0.8, abs=1e-4)
         assert metrics["avg_compatibility_score"] == pytest.approx(0.65, abs=1e-4)
+        assert metrics["avg_relation_coverage_score"] == pytest.approx(0.45, abs=1e-4)
         assert metrics["avg_bundle_decision_score"] == pytest.approx(0.6, abs=1e-4)
         assert metrics["avg_long_term_fit_score"] == pytest.approx(0.65, abs=1e-4)
         assert metrics["avg_phased_purchase_score"] == pytest.approx(0.55, abs=1e-4)

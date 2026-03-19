@@ -31,6 +31,7 @@ class TaskResult:
 
     # 执行状态
     success: bool = False           # 有推荐结果且满足预算
+    bundle_success: bool = False    # bundle 任务上的严格成功
     has_result: bool = False        # 是否有任何推荐结果（覆盖率）
     error: Optional[str] = None     # 若抛异常记录错误信息
 
@@ -56,6 +57,7 @@ class TaskResult:
 
     # 诊断指标
     task_family: str = "general"
+    original_task_family: str = "general"
     parser_category_match: float = 0.0
     plan_category_match: float = 0.0
     clarification_expected: bool = False
@@ -69,6 +71,9 @@ class TaskResult:
     persona_reason_coverage: float = 0.0
     style_coherence_score: float = 0.0
     bundle_completeness_score: float = 0.0
+    compatibility_score: float = 0.0
+    relation_coverage_score: float = 0.0
+    bundle_decision_score: float = 0.0
     long_term_fit_score: float = 0.0
     phased_purchase_score: float = 0.0
     drift_expected: bool = False
@@ -86,6 +91,7 @@ class TaskResult:
             "task_id": self.task_id,
             "query": self.query,
             "success": self.success,
+            "bundle_success": self.bundle_success,
             "has_result": self.has_result,
             "error": self.error,
             "budget_satisfied": self.budget_satisfied,
@@ -101,6 +107,7 @@ class TaskResult:
             "graph_recovery_used": self.graph_recovery_used,
             "parser_category_match": round(self.parser_category_match, 3),
             "task_family": self.task_family,
+            "original_task_family": self.original_task_family,
             "plan_category_match": round(self.plan_category_match, 3),
             "clarification_expected": self.clarification_expected,
             "clarification_alignment": round(self.clarification_alignment, 3),
@@ -113,6 +120,9 @@ class TaskResult:
             "persona_reason_coverage": round(self.persona_reason_coverage, 3),
             "style_coherence_score": round(self.style_coherence_score, 3),
             "bundle_completeness_score": round(self.bundle_completeness_score, 3),
+            "compatibility_score": round(self.compatibility_score, 3),
+            "relation_coverage_score": round(self.relation_coverage_score, 3),
+            "bundle_decision_score": round(self.bundle_decision_score, 3),
             "long_term_fit_score": round(self.long_term_fit_score, 3),
             "phased_purchase_score": round(self.phased_purchase_score, 3),
             "drift_expected": self.drift_expected,
@@ -162,6 +172,9 @@ class MetricsComputer:
         avg_persona_reason_coverage = sum(r.persona_reason_coverage for r in results) / n
         avg_style_coherence = sum(r.style_coherence_score for r in results) / n
         avg_bundle_completeness = sum(r.bundle_completeness_score for r in results) / n
+        avg_compatibility = sum(r.compatibility_score for r in results) / n
+        avg_relation_coverage = sum(r.relation_coverage_score for r in results) / n
+        avg_bundle_decision = sum(r.bundle_decision_score for r in results) / n
         avg_long_term_fit = sum(r.long_term_fit_score for r in results) / n
         avg_phased_purchase = sum(r.phased_purchase_score for r in results) / n
         drift_detection_rate = sum(1 for r in results if r.drift_detected) / n
@@ -205,6 +218,9 @@ class MetricsComputer:
                     "avg_overall_score_total": 0.0,
                     "avg_drift_alignment_total": 0.0,
                     "avg_bundle_completeness_total": 0.0,
+                    "avg_compatibility_total": 0.0,
+                    "avg_relation_coverage_total": 0.0,
+                    "avg_bundle_decision_total": 0.0,
                     "avg_long_term_fit_total": 0.0,
                 },
             )
@@ -214,6 +230,9 @@ class MetricsComputer:
             family_bucket["avg_overall_score_total"] += r.overall_score
             family_bucket["avg_drift_alignment_total"] += r.drift_alignment_score
             family_bucket["avg_bundle_completeness_total"] += r.bundle_completeness_score
+            family_bucket["avg_compatibility_total"] += r.compatibility_score
+            family_bucket["avg_relation_coverage_total"] += r.relation_coverage_score
+            family_bucket["avg_bundle_decision_total"] += r.bundle_decision_score
             family_bucket["avg_long_term_fit_total"] += r.long_term_fit_score
 
         for family, bucket in task_family_summary.items():
@@ -227,6 +246,15 @@ class MetricsComputer:
             bucket["avg_bundle_completeness_score"] = round(
                 bucket["avg_bundle_completeness_total"] / count, 4
             )
+            bucket["avg_compatibility_score"] = round(
+                bucket["avg_compatibility_total"] / count, 4
+            )
+            bucket["avg_relation_coverage_score"] = round(
+                bucket["avg_relation_coverage_total"] / count, 4
+            )
+            bucket["avg_bundle_decision_score"] = round(
+                bucket["avg_bundle_decision_total"] / count, 4
+            )
             bucket["avg_long_term_fit_score"] = round(
                 bucket["avg_long_term_fit_total"] / count, 4
             )
@@ -235,6 +263,9 @@ class MetricsComputer:
             del bucket["avg_overall_score_total"]
             del bucket["avg_drift_alignment_total"]
             del bucket["avg_bundle_completeness_total"]
+            del bucket["avg_compatibility_total"]
+            del bucket["avg_relation_coverage_total"]
+            del bucket["avg_bundle_decision_total"]
             del bucket["avg_long_term_fit_total"]
 
         return {
@@ -259,6 +290,9 @@ class MetricsComputer:
             "avg_persona_reason_coverage": round(avg_persona_reason_coverage, 4),
             "avg_style_coherence_score": round(avg_style_coherence, 4),
             "avg_bundle_completeness_score": round(avg_bundle_completeness, 4),
+            "avg_compatibility_score": round(avg_compatibility, 4),
+            "avg_relation_coverage_score": round(avg_relation_coverage, 4),
+            "avg_bundle_decision_score": round(avg_bundle_decision, 4),
             "avg_long_term_fit_score": round(avg_long_term_fit, 4),
             "avg_phased_purchase_score": round(avg_phased_purchase, 4),
             "drift_detection_rate": round(drift_detection_rate, 4),
@@ -278,7 +312,42 @@ class MetricsComputer:
             "error_type_breakdown": error_type_breakdown,
             "failure_bucket_breakdown": failure_bucket_breakdown,
             "task_family_summary": task_family_summary,
+            "bundle_summary": self._compute_bundle_summary(results),
             "errors": errors[:5],  # 最多显示 5 个错误
+        }
+
+    def _compute_bundle_summary(self, results: list[TaskResult]) -> dict[str, Any]:
+        bundle_results = [
+            r for r in results
+            if r.original_task_family in {"bundle", "upgrade_path", "phased_purchase", "bundle_noise"}
+        ]
+        if not bundle_results:
+            return {"num_tasks": 0}
+
+        n = len(bundle_results)
+        return {
+            "num_tasks": n,
+            "bundle_success_rate": round(
+                sum(1 for r in bundle_results if r.bundle_success) / n, 4
+            ),
+            "avg_bundle_decision_score": round(
+                sum(r.bundle_decision_score for r in bundle_results) / n, 4
+            ),
+            "avg_bundle_completeness_score": round(
+                sum(r.bundle_completeness_score for r in bundle_results) / n, 4
+            ),
+            "avg_compatibility_score": round(
+                sum(r.compatibility_score for r in bundle_results) / n, 4
+            ),
+            "avg_relation_coverage_score": round(
+                sum(r.relation_coverage_score for r in bundle_results) / n, 4
+            ),
+            "avg_long_term_fit_score": round(
+                sum(r.long_term_fit_score for r in bundle_results) / n, 4
+            ),
+            "avg_phased_purchase_score": round(
+                sum(r.phased_purchase_score for r in bundle_results) / n, 4
+            ),
         }
 
     def compare(
@@ -301,6 +370,7 @@ class MetricsComputer:
             "avg_intent_resolution_score", "avg_execution_readiness_score",
             "avg_plan_persona_alignment_score", "avg_persona_reason_coverage",
             "avg_style_coherence_score", "avg_bundle_completeness_score",
+            "avg_compatibility_score", "avg_relation_coverage_score", "avg_bundle_decision_score",
             "avg_long_term_fit_score", "avg_phased_purchase_score",
             "drift_detection_rate", "avg_drift_alignment_score",
         ]

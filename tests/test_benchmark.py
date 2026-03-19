@@ -397,6 +397,7 @@ class TestBenchmarkRunnerModes:
 
         md = _baseline_suite_markdown(reports)
         assert "| Method | Success | BundleSuccess | Cost | BundleScore |" in md
+        assert "RelationCoverage" in md
         assert "full_agent" in md
         assert "no_memory" in md
 
@@ -404,5 +405,6 @@ class TestBenchmarkRunnerModes:
         _write_baseline_suite_csv(csv_path, reports)
         text = csv_path.read_text(encoding="utf-8")
         assert "method,success_rate,bundle_success_rate,cost_band,bundle_score" in text
+        assert "relation_coverage" in text
         assert "full_agent" in text
         assert "no_memory" in text

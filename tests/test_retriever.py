@@ -13,6 +13,7 @@ from __future__ import annotations
 import pytest
 
 from shopping_agent.common.exceptions import NoProductFoundError
+from shopping_agent.common.types import UserProfile
 from shopping_agent.data.loader import ProductCatalog
 from shopping_agent.retrieval.retriever import HybridRetriever
 from shopping_agent.retrieval.vector_index import TFIDFVectorIndex
@@ -76,6 +77,36 @@ class TestHybridRetrieverRerank:
         brands = [p.brand for p in results]
         if "Sony" in brands and "QCY" in brands:
             assert brands.index("Sony") < brands.index("QCY")
+
+    def test_persona_alignment_can_raise_professional_product(self, small_catalog):
+        products = list(small_catalog._products)
+        products[0].persona_tags = {
+            "style_signal": ["premium", "clean"],
+            "identity_fit": ["professional"],
+            "visibility_level": "moderate",
+            "symbolic_value": "taste_signaling",
+        }
+        products[1].persona_tags = {
+            "style_signal": ["playful", "tech"],
+            "identity_fit": ["gamer"],
+            "visibility_level": "attention_grabbing",
+            "symbolic_value": "utilitarian",
+        }
+        idx = TFIDFVectorIndex()
+        idx.build(products)
+        retriever = HybridRetriever(catalog=small_catalog, vector_index=idx)
+
+        profile = UserProfile(
+            user_id="u_persona",
+            identity_goal={"professional": 0.9},
+            budget_sensitivity_profile={"premium": 0.8},
+            brand_orientation={"brand_signal": 0.7},
+            aesthetic_preference={"clean": 0.8, "premium": 0.8},
+            persona_stability=0.9,
+        )
+        task = make_task(categories=["headset"], budget=5000.0)
+        results = retriever.retrieve(task, user_profile=profile, top_k=10)
+        assert results[0].product_id == "p001"
 
 
 class TestTFIDFVectorIndex:

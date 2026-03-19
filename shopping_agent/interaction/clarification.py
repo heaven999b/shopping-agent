@@ -89,6 +89,27 @@ _SLOT_CONFIG: dict[str, dict] = {
         "style": ClarificationStyle.OPEN_ENDED,
         "options": [],
     },
+    "identity_goal": {
+        "info_gain": 0.75,
+        "impact": 0.8,
+        "question_template": "您更希望这次推荐偏哪种路线，比如低调专业、个性表达还是稳妥实用？",
+        "style": ClarificationStyle.CHOICE,
+        "options": ["低调专业", "个性表达", "稳妥实用"],
+    },
+    "aesthetic_preference": {
+        "info_gain": 0.7,
+        "impact": 0.7,
+        "question_template": "外观上您更偏简洁克制、显质感，还是更有个性一点？",
+        "style": ClarificationStyle.CHOICE,
+        "options": ["简洁克制", "更显质感", "更有个性"],
+    },
+    "budget_flexibility": {
+        "info_gain": 0.8,
+        "impact": 0.85,
+        "question_template": "这个预算是硬上限，还是看到特别合适的会愿意加一点？",
+        "style": ClarificationStyle.CHOICE,
+        "options": ["硬上限", "可小幅上浮", "更看整体合适"],
+    },
     "compatibility": {
         "info_gain": 0.6,
         "impact": 0.8,
@@ -196,9 +217,18 @@ class ClarificationPolicy:
             if question and question.info_gain >= MIN_INFO_GAIN_TO_ASK:
                 questions.append(question)
 
+        questions.extend(self._build_persona_questions(task, user_profile))
+
         # 按 clarification_value 降序
         questions.sort(key=lambda q: self._score(q, task), reverse=True)
-        return questions
+        deduped: list[ClarificationQuestion] = []
+        seen_slots: set[str] = set()
+        for question in questions:
+            if question.slot in seen_slots:
+                continue
+            seen_slots.add(question.slot)
+            deduped.append(question)
+        return deduped
 
     def update_weights(self, slot: str, new_weight: float) -> None:
         """由学习层调用，更新槽位权重。"""
@@ -276,9 +306,42 @@ class ClarificationPolicy:
         weight = self._slot_weights.get(q.slot, 1.0)
         return (q.info_gain * q.impact_score * weight) / fatigue_cost
 
+    def _build_persona_questions(
+        self,
+        task: ShoppingTask,
+        user_profile: Optional[UserProfile],
+    ) -> list[ClarificationQuestion]:
+        if user_profile is None:
+            return []
+
+        stability = getattr(user_profile, "persona_stability", 0.5)
+        if stability >= 0.65:
+            return []
+
+        candidates: list[str] = []
+        if "budget_total" in task.get_hard_constraints():
+            candidates.append("budget_flexibility")
+        candidates.extend(["identity_goal", "aesthetic_preference"])
+
+        questions = []
+        for slot in candidates:
+            question = self._build_question(slot, task)
+            if question is None:
+                continue
+            boost = min(0.25, (0.65 - stability) * 0.5)
+            question.info_gain = min(1.0, question.info_gain + boost)
+            if slot == "budget_flexibility" and user_profile.recent_persona_drift.get("type") == "budget_drift":
+                question.info_gain = min(1.0, question.info_gain + 0.1)
+            questions.append(question)
+        return questions
+
     def _can_fill_from_profile(self, slot: str, profile: UserProfile) -> bool:
         if slot == "size" and profile.size_profile:
             return True
         if slot == "brand_preference" and profile.brand_weights:
+            return True
+        if slot == "identity_goal" and profile.identity_goal and profile.persona_stability >= 0.75:
+            return True
+        if slot == "aesthetic_preference" and profile.aesthetic_preference and profile.persona_stability >= 0.75:
             return True
         return False

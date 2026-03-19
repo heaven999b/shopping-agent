@@ -153,6 +153,7 @@ def _baseline_suite_rows(reports: dict[str, dict]) -> list[dict[str, str | float
                 "bundle_score": round(bundle_summary.get("avg_bundle_decision_score", metrics.get("avg_bundle_decision_score", 0.0)), 4),
                 "bundle_completeness": round(bundle_summary.get("avg_bundle_completeness_score", metrics.get("avg_bundle_completeness_score", 0.0)), 4),
                 "compatibility": round(bundle_summary.get("avg_compatibility_score", metrics.get("avg_compatibility_score", 0.0)), 4),
+                "relation_coverage": round(bundle_summary.get("avg_relation_coverage_score", metrics.get("avg_relation_coverage_score", 0.0)), 4),
                 "long_term_fit": round(bundle_summary.get("avg_long_term_fit_score", metrics.get("avg_long_term_fit_score", 0.0)), 4),
                 "phased_purchase": round(bundle_summary.get("avg_phased_purchase_score", metrics.get("avg_phased_purchase_score", 0.0)), 4),
                 "regret_risk": round(regret_risk, 4),
@@ -164,14 +165,14 @@ def _baseline_suite_rows(reports: dict[str, dict]) -> list[dict[str, str | float
 def _baseline_suite_markdown(reports: dict[str, dict]) -> str:
     rows = _baseline_suite_rows(reports)
     lines = [
-        "| Method | Success | BundleSuccess | Cost | BundleScore | BundleCompleteness | Compatibility | LongTermFit | PhasedPurchase | RegretRisk |",
-        "|---|---:|---:|---|---:|---:|---:|---:|---:|---:|",
+        "| Method | Success | BundleSuccess | Cost | BundleScore | BundleCompleteness | Compatibility | RelationCoverage | LongTermFit | PhasedPurchase | RegretRisk |",
+        "|---|---:|---:|---|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for row in rows:
         lines.append(
             f"| {row['method']} | {row['success_rate']:.2%} | {row['bundle_success_rate']:.2%} | {row['cost_band']} | "
             f"{row['bundle_score']:.4f} | {row['bundle_completeness']:.4f} | "
-            f"{row['compatibility']:.4f} | {row['long_term_fit']:.4f} | {row['phased_purchase']:.4f} | {row['regret_risk']:.4f} |"
+            f"{row['compatibility']:.4f} | {row['relation_coverage']:.4f} | {row['long_term_fit']:.4f} | {row['phased_purchase']:.4f} | {row['regret_risk']:.4f} |"
         )
     return "\n".join(lines) + "\n"
 
@@ -189,6 +190,7 @@ def _write_baseline_suite_csv(path: Path, reports: dict[str, dict]) -> None:
                 "bundle_score",
                 "bundle_completeness",
                 "compatibility",
+                "relation_coverage",
                 "long_term_fit",
                 "phased_purchase",
                 "regret_risk",

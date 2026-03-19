@@ -48,6 +48,7 @@ class HiddenUserPreference:
     color: Optional[str] = None
     size: Optional[str] = None
     style: Optional[str] = None
+    identity_goal: Optional[str] = None
 
     # 用户耐心度（影响多问时的流失概率）
     patience: float = 0.8         # 1.0=非常有耐心，0.0=完全没耐心
@@ -55,9 +56,14 @@ class HiddenUserPreference:
     # 需求清晰度（影响初始不确定性）
     clarity: float = 0.5          # 1.0=需求非常清晰
 
+    # 可选 drift 信号（用于训练 drift-aware 策略）
+    drift_type: Optional[str] = None   # "budget_drift" | "style_drift" | "brand_drift"
+    drift_strength: float = 0.0
+
     @classmethod
     def sample_random(cls) -> "HiddenUserPreference":
         """随机采样一个用户偏好（用于训练数据生成）。"""
+        drift_type = random.choice([None, "budget_drift", "style_drift", "brand_drift"])
         return cls(
             budget_total=random.choice([1000, 2000, 3000, 5000, 8000, 15000]),
             delivery_days=random.choice([1, 2, 3, 5, 7]),
@@ -65,8 +71,12 @@ class HiddenUserPreference:
             brand_preference=random.sample(
                 ["Sony", "LG", "Samsung", "Xiaomi", "Apple", "Logitech"], k=2
             ),
+            style=random.choice(["clean", "premium", "playful", "minimal"]),
+            identity_goal=random.choice(["professional", "creator", "practical"]),
             patience=random.uniform(0.5, 1.0),
             clarity=random.uniform(0.3, 0.9),
+            drift_type=drift_type,
+            drift_strength=0.35 if drift_type else 0.0,
         )
 
 

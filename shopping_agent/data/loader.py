@@ -54,6 +54,7 @@ def _dict_to_product(d: dict) -> Product:
         return_days=7,
         is_official_store=d.get("is_official_store", False),
     )
+    persona_tags = d.get("persona_tags") or _infer_persona_tags(d)
     return Product(
         product_id=d["product_id"],
         title=d["title"],
@@ -69,7 +70,52 @@ def _dict_to_product(d: dict) -> Product:
         rating=d.get("rating"),
         review_count=d.get("review_count", 0),
         sales_volume=d.get("sales_volume", 0),
+        persona_tags=persona_tags,
     )
+
+
+def _infer_persona_tags(d: dict) -> dict[str, Any]:
+    """根据商品元数据推断最小 persona tags，便于逐步迁移到显式标注。"""
+    category = d.get("category", "")
+    brand = (d.get("brand") or "").lower()
+    price = float(d.get("price", 0.0))
+    title = d.get("title", "").lower()
+    color = str(d.get("attributes", {}).get("color", "")).lower()
+
+    style_signal: list[str] = []
+    identity_fit: list[str] = []
+    symbolic_value = "utilitarian"
+    visibility_level = "moderate"
+
+    premium_brands = {"sony", "bose", "apple", "samsung", "dell", "lg"}
+    playful_brands = {"logitech", "razer", "aoc"}
+
+    if brand in premium_brands or price >= 1800:
+        style_signal.extend(["premium", "professional"])
+        symbolic_value = "taste_signaling"
+    if brand in playful_brands or "rgb" in title or "游戏" in title:
+        style_signal.extend(["tech", "playful"])
+        visibility_level = "attention_grabbing"
+    if color in {"黑色", "silver", "银色", "gray", "灰色"}:
+        style_signal.append("clean")
+    if category in {"monitor", "laptop", "chair", "desk"}:
+        identity_fit.extend(["office", "professional"])
+    if category in {"keyboard", "mouse", "headset"}:
+        identity_fit.extend(["creator", "gamer"])
+    if "无线" in title or category == "headset":
+        identity_fit.append("traveler")
+
+    if not style_signal:
+        style_signal.append("practical")
+    if not identity_fit:
+        identity_fit.append("general")
+
+    return {
+        "style_signal": list(dict.fromkeys(style_signal)),
+        "identity_fit": list(dict.fromkeys(identity_fit)),
+        "visibility_level": visibility_level,
+        "symbolic_value": symbolic_value,
+    }
 
 
 class ProductCatalog:

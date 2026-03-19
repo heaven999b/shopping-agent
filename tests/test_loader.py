@@ -59,6 +59,25 @@ class TestDictToProduct:
         assert p.brand == ""
         assert p.category == ""
         assert p.attributes == []
+        assert p.persona_tags  # fallback tags should be inferred
+
+    def test_persona_tags_preserved(self):
+        d = {
+            "product_id": "p102",
+            "title": "高端耳机",
+            "platform": "JD",
+            "price": 2999.0,
+            "category": "headset",
+            "brand": "Sony",
+            "persona_tags": {
+                "style_signal": ["premium"],
+                "identity_fit": ["professional"],
+                "visibility_level": "moderate",
+                "symbolic_value": "taste_signaling",
+            },
+        }
+        p = _dict_to_product(d)
+        assert p.persona_tags["style_signal"] == ["premium"]
 
 
 # ---------------------------------------------------------------------------

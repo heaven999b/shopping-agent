@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 
-from shopping_agent.common.types import BundlePlan, TaskType
+from shopping_agent.common.types import BundlePlan, PlanItem, TaskType
 from shopping_agent.common.exceptions import InfeasibleConstraintError
 from shopping_agent.planning.explainer import Explainer
 from shopping_agent.planning.bundle_planner import BundlePlanner
@@ -107,10 +107,73 @@ class TestPlannerBundle:
         assert set(plans[0].budget_allocation.keys()) == {"headset", "monitor"}
         assert plans[0].style_coherence_score > 0.5
         assert plans[0].bundle_completeness_score == pytest.approx(1.0, abs=1e-4)
+        assert plans[0].required_slots == ["headset", "monitor"]
+        assert plans[0].filled_slots == ["headset", "monitor"]
         assert plans[0].slot_coverage == {"headset": True, "monitor": True}
-        assert plans[0].compatibility_score > 0.8
+        assert plans[0].compatibility_score >= 0.8
+        assert plans[0].relation_coverage_score >= 0.25
+        assert plans[0].bundle_decision_score > 0.45
+        assert plans[0].overall_score == plans[0].bundle_decision_score
         assert plans[0].phased_upgrade_plan == plans[0].phased_purchase_options
         assert plans[0].phased_purchase_options
+
+    def test_bundle_compatibility_uses_relation_graph(self, planner, user_profile):
+        keyboard = make_product("k1", title="办公键盘", category="keyboard", price=699.0, brand="Logitech")
+        mouse = make_product("m1", title="办公鼠标", category="mouse", price=399.0, brand="Logitech")
+        keyboard.persona_tags = {"style_signal": ["clean"], "identity_fit": ["professional"]}
+        mouse.persona_tags = {"style_signal": ["clean"], "identity_fit": ["professional"]}
+        task = make_task(
+            task_id="t_bundle_graph",
+            task_type=TaskType.BUNDLE,
+            categories=["keyboard", "mouse"],
+            budget=3000.0,
+            raw_query="帮我配一套办公键鼠",
+        )
+        graph = {
+            "k1": [
+                {"target_id": "m1", "edge_type": "COMPLEMENT", "weight": 0.9},
+                {"target_id": "m1", "edge_type": "STYLE_MATCH", "weight": 0.8},
+            ],
+            "m1": [
+                {"target_id": "k1", "edge_type": "COMPLEMENT", "weight": 0.9},
+            ],
+        }
+
+        plans = planner.plan(task, graph, user_profile=user_profile, retrieved_products=[keyboard, mouse])
+
+        assert plans[0].compatibility_score > 0.85
+        assert plans[0].relation_coverage_score > 0.75
+        assert plans[0].bundle_decision_score > 0.5
+
+    def test_partial_bundle_is_penalized_by_relation_and_coverage(self, planner):
+        monitor = make_product("m1", title="办公显示器", category="monitor", price=1999.0, brand="LG")
+        lamp = make_product("l1", title="桌面台灯", category="desk_lamp", price=499.0, brand="BenQ")
+        monitor.persona_tags = {"style_signal": ["clean"], "identity_fit": ["professional"]}
+        lamp.persona_tags = {"style_signal": ["clean"], "identity_fit": ["professional"]}
+        task = make_task(
+            task_id="t_partial_bundle",
+            task_type=TaskType.BUNDLE,
+            categories=["monitor", "desk_lamp", "headset"],
+            budget=6000.0,
+            raw_query="帮我配一套桌搭，显示器、灯和耳机都要",
+        )
+
+        partial_plan = planner._assemble_plan(
+            task,
+            [
+                PlanItem(bundle_slot="monitor", product=monitor, reason="partial"),
+                PlanItem(bundle_slot="desk_lamp", product=lamp, reason="partial"),
+            ],
+            candidate_graph={},
+            budget=6000.0,
+            tier_name="partial",
+        )
+
+        assert partial_plan is not None
+        assert partial_plan.bundle_completeness_score == pytest.approx(2 / 3, abs=1e-3)
+        assert partial_plan.compatibility_score <= 0.8
+        assert partial_plan.relation_coverage_score == pytest.approx(0.25, abs=1e-4)
+        assert partial_plan.bundle_decision_score < 0.4
 
 
 
