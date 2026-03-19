@@ -26,6 +26,7 @@ from typing import Any, Optional
 
 from shopping_agent.agent.orchestrator import ShoppingAgentOrchestrator
 from shopping_agent.agent.state import WorkflowStep
+from shopping_agent.common.repro import set_global_seed
 from shopping_agent.common.types import (
     Constraint,
     ConstraintSeverity,
@@ -253,7 +254,12 @@ class BenchmarkRunner:
         disable_verifier: bool = False,
         disable_clarification: bool = False,
         baseline_profile: Optional[str] = None,
+        seed: Optional[int] = 42,
+        deterministic: bool = True,
     ):
+        self._seed = seed
+        self._deterministic = deterministic
+        set_global_seed(seed, deterministic=deterministic)
         self.orchestrator = ShoppingAgentOrchestrator(use_rl=use_rl)
         self.user_id = user_id
         self.tasks_path = tasks_path
@@ -283,6 +289,7 @@ class BenchmarkRunner:
           verbose  — 是否打印逐任务结果
         """
         raw_tasks = load_benchmark_tasks(self.tasks_path)
+        set_global_seed(self._seed, deterministic=self._deterministic)
         if task_ids:
             raw_tasks = [t for t in raw_tasks if t["task_id"] in task_ids]
 
@@ -295,11 +302,13 @@ class BenchmarkRunner:
         per_task = [r.to_dict() for r in results]
         report = {
             "report_schema_version": "v2",
-            "run_id": str(uuid.uuid4())[:8],
+            "run_id": self._make_run_id(),
             "timestamp": datetime.now().isoformat(),
             "mode": "rl" if self._use_rl else "heuristic",
             "benchmark_mode": self._benchmark_mode,
             "baseline_profile": self._baseline_profile,
+            "seed": self._seed,
+            "deterministic": self._deterministic,
             "num_tasks": len(results),
             "metrics": metrics,
             "per_task": per_task,
@@ -314,6 +323,8 @@ class BenchmarkRunner:
                         else "proxy_from_structured_tasks"
                     ),
                     "bundle_primary_view": "bundle_summary",
+                    "seed": self._seed,
+                    "deterministic": self._deterministic,
                 },
             },
         }
@@ -350,7 +361,7 @@ class BenchmarkRunner:
         try:
             # 构建 ShoppingTask 并直接注入 orchestrator（跳过 intent parser）
             task = _task_from_dict(raw)
-            session_id = str(uuid.uuid4())
+            session_id = self._make_session_id(task_id)
 
             # 直接调用内部步骤（不经过 intent parser，使用已解析的 task）
             from shopping_agent.agent.state import AgentState, WorkflowStep
@@ -523,6 +534,21 @@ class BenchmarkRunner:
             )
 
         return result
+
+    def _make_run_id(self) -> str:
+        if self._deterministic:
+            seed_part = "none" if self._seed is None else str(self._seed)
+            return (
+                f"{self._benchmark_mode}_{self._baseline_profile}_"
+                f"{'rl' if self._use_rl else 'heuristic'}_s{seed_part}"
+            )
+        return str(uuid.uuid4())[:8]
+
+    def _make_session_id(self, task_id: str) -> str:
+        if self._deterministic:
+            seed_part = "none" if self._seed is None else str(self._seed)
+            return f"{self._benchmark_mode}_{self._baseline_profile}_{task_id}_s{seed_part}"
+        return str(uuid.uuid4())
 
     def _run_single_task_e2e(self, raw: dict, verbose: bool = True) -> TaskResult:
         original_raw = copy.deepcopy(raw)

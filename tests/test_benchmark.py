@@ -46,11 +46,16 @@ class TestBenchmarkRunnerModes:
         assert report["benchmark_mode"] == "pipeline"
         assert report["num_tasks"] == 1
         assert report["report_schema_version"] == "v2"
+        assert report["seed"] == 42
+        assert report["deterministic"] is True
         assert "report_sections" in report
         assert (
             report["report_sections"]["evaluation_notes"]["understanding_metrics_mode"]
             == "proxy_from_structured_tasks"
         )
+        assert report["report_sections"]["evaluation_notes"]["seed"] == 42
+        assert report["report_sections"]["evaluation_notes"]["deterministic"] is True
+        assert report["run_id"].startswith("pipeline_full_agent_heuristic_s42")
 
     def test_e2e_mode_handles_clarification_task(self, tmp_path):
         tasks = [
@@ -95,6 +100,37 @@ class TestBenchmarkRunnerModes:
         assert "avg_intent_resolution_score" in report["metrics"]
         assert "avg_drift_alignment_score" in report["metrics"]
         assert report["per_task"][0]["failure_bucket"] == "success"
+
+    def test_seed_and_deterministic_control_are_configurable(self, tmp_path):
+        tasks = [
+            {
+                "task_id": "tb002b",
+                "query": "帮我买个耳机",
+                "task_type": "single",
+                "categories": ["headset"],
+                "constraints": {
+                    "budget_total": {"value": 2000.0, "severity": "hard"},
+                },
+                "uncertainty_slots": {},
+                "expected": {"required_attrs": []},
+            }
+        ]
+        tasks_path = tmp_path / "tasks_seed.json"
+        tasks_path.write_text(json.dumps(tasks, ensure_ascii=False), encoding="utf-8")
+
+        runner = BenchmarkRunner(
+            benchmark_mode="pipeline",
+            tasks_path=str(tasks_path),
+            output_dir=str(tmp_path / "logs"),
+            seed=7,
+            deterministic=False,
+        )
+        report = runner.run(verbose=False)
+
+        assert report["seed"] == 7
+        assert report["deterministic"] is False
+        assert report["report_sections"]["evaluation_notes"]["seed"] == 7
+        assert report["report_sections"]["evaluation_notes"]["deterministic"] is False
 
     def test_benchmark_report_includes_drift_fields(self, tmp_path):
         tasks = [

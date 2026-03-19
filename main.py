@@ -137,7 +137,11 @@ def cmd_benchmark(args) -> None:
             "--baseline-suite",
             "--mode",
             "e2e" if args.quick else "pipeline",
+            "--seed",
+            str(args.seed),
         ]
+        if args.non_deterministic:
+            cmd.append("--non-deterministic")
         if args.save:
             cmd.append("--save")
         subprocess.run(cmd, check=True)
@@ -146,11 +150,21 @@ def cmd_benchmark(args) -> None:
     if args.compare:
         # 同时跑两种模式并对比
         print("Running heuristic baseline...")
-        runner_base = BenchmarkRunner(use_rl=False, output_dir="logs")
+        runner_base = BenchmarkRunner(
+            use_rl=False,
+            output_dir="logs",
+            seed=args.seed,
+            deterministic=not args.non_deterministic,
+        )
         report_base = runner_base.run(verbose=True)
 
         print("\nRunning RL-enhanced mode...")
-        runner_rl = BenchmarkRunner(use_rl=True, output_dir="logs")
+        runner_rl = BenchmarkRunner(
+            use_rl=True,
+            output_dir="logs",
+            seed=args.seed,
+            deterministic=not args.non_deterministic,
+        )
         report_rl = runner_rl.run(verbose=True)
 
         comparison = runner_base.compare(report_base, report_rl)
@@ -173,7 +187,12 @@ def cmd_benchmark(args) -> None:
         return
 
     # 单模式
-    runner = BenchmarkRunner(use_rl=args.rl, output_dir="logs")
+    runner = BenchmarkRunner(
+        use_rl=args.rl,
+        output_dir="logs",
+        seed=args.seed,
+        deterministic=not args.non_deterministic,
+    )
     report = runner.run(task_ids=task_ids, verbose=True)
 
     if args.save:
@@ -236,7 +255,7 @@ def cmd_demo(args) -> None:
     from shopping_agent.evaluation.benchmark import BenchmarkRunner
 
     task_ids = [task["task_id"] for task in load_benchmark_tasks()[:2]]
-    runner = BenchmarkRunner(output_dir="logs", benchmark_mode="e2e")
+    runner = BenchmarkRunner(output_dir="logs", benchmark_mode="e2e", seed=42)
     report = runner.run(task_ids=task_ids, verbose=True)
     saved = runner.save_report(report, filename="demo_report.json")
     print(f"\nDemo 完成，结果已保存: {saved}")
@@ -360,6 +379,12 @@ def main():
     p_bench.add_argument("--save", action="store_true", help="保存报告到 logs/")
     p_bench.add_argument("--tasks", default=None, help="逗号分隔的 task_id 列表（默认全量）")
     p_bench.add_argument("--quick", action="store_true", help="使用小任务子集快速验证闭环")
+    p_bench.add_argument("--seed", type=int, default=42, help="随机种子（默认 42）")
+    p_bench.add_argument(
+        "--non-deterministic",
+        action="store_true",
+        help="关闭 deterministic control",
+    )
 
     # train
     p_train = subparsers.add_parser("train", help="RL-enhanced 策略训练")

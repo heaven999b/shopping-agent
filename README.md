@@ -167,6 +167,7 @@ python run_benchmark.py --mode pipeline   # 模块级 benchmark
 python run_benchmark.py --mode e2e        # 端到端 benchmark（走公开入口）
 python run_benchmark.py --mode e2e --save # 保存完整报告 + summary + metrics + per_task
 python run_benchmark.py --baseline-suite  # 运行 full / naive-llm / no-clarification / no-constraint / no-memory / single-item / no_bundle_scoring 对比
+python run_benchmark.py --baseline-suite --seed 42
 
 # RL-enhanced 策略训练（增强模块）
 python main.py train --pretrain --synthetic
@@ -218,6 +219,30 @@ CI 现在拆成四层：
   跑 baseline suite，并检查主结果摘要与任务分布产物是否生成
 - `build`
   运行 `python -m build`，验证 packaging 链路
+
+### Seed 与 Deterministic Control
+
+当前 benchmark 默认启用：
+
+- `seed=42`
+- deterministic `run_id`
+- deterministic `session_id`
+- Python / NumPy 全局随机种子固定
+
+你也可以显式指定：
+
+```bash
+python run_benchmark.py --baseline-suite --seed 123
+python run_benchmark.py --mode e2e --seed 123
+python run_benchmark.py --baseline-suite --non-deterministic
+```
+
+报告里现在会显式记录：
+
+- `seed`
+- `deterministic`
+- `report_sections.evaluation_notes.seed`
+- `report_sections.evaluation_notes.deterministic`
 
 ### 测试
 

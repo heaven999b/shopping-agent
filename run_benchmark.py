@@ -48,6 +48,12 @@ def main():
         default="pipeline",
         help="评测模式：pipeline=模块级，e2e=端到端公开入口",
     )
+    parser.add_argument("--seed", type=int, default=42, help="随机种子（默认 42）")
+    parser.add_argument(
+        "--non-deterministic",
+        action="store_true",
+        help="关闭 deterministic control，允许使用非固定 run_id/session_id",
+    )
     args = parser.parse_args()
 
     task_ids = args.tasks.split(",") if args.tasks else None
@@ -101,6 +107,8 @@ def main():
             runner = BenchmarkRunner(
                 output_dir=args.output_dir,
                 benchmark_mode=args.mode,
+                seed=args.seed,
+                deterministic=not args.non_deterministic,
                 **kwargs,
             )
             reports[name] = runner.run(task_ids=task_ids, verbose=verbose)
@@ -146,6 +154,8 @@ def main():
             use_rl=False,
             output_dir=args.output_dir,
             benchmark_mode=args.mode,
+            seed=args.seed,
+            deterministic=not args.non_deterministic,
         )
         report_h = runner_h.run(task_ids=task_ids, verbose=verbose)
 
@@ -156,6 +166,8 @@ def main():
             use_rl=True,
             output_dir=args.output_dir,
             benchmark_mode=args.mode,
+            seed=args.seed,
+            deterministic=not args.non_deterministic,
         )
         report_r = runner_r.run(task_ids=task_ids, verbose=verbose)
 
@@ -174,6 +186,8 @@ def main():
             use_rl=args.rl,
             output_dir=args.output_dir,
             benchmark_mode=args.mode,
+            seed=args.seed,
+            deterministic=not args.non_deterministic,
         )
         report = runner.run(task_ids=task_ids, verbose=verbose)
 
