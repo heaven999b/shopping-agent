@@ -1,0 +1,302 @@
+[
+  {
+    "id": "task_001",
+    "user_query": "I need wireless headphones under $100",
+    "constraints": {"budget_max": 100, "required_attributes": {"wireless": true}},
+    "needs_clarification": false,
+    "acceptable_product_ids": ["prod_003"],
+    "difficulty": "easy",
+    "category": "electronics/headphones",
+    "description": "Simple budget wireless headphones query"
+  },
+  {
+    "id": "task_002",
+    "user_query": "I want to make espresso at home but keep it simple",
+    "constraints": {"required_attributes": {"type": "espresso", "ease_of_use": "beginner"}},
+    "needs_clarification": false,
+    "acceptable_product_ids": ["prod_012", "prod_015"],
+    "difficulty": "easy",
+    "category": "home/coffee",
+    "description": "Beginner espresso solution"
+  },
+  {
+    "id": "task_003",
+    "user_query": "I need a laptop under $500",
+    "constraints": {"budget_max": 500},
+    "needs_clarification": false,
+    "acceptable_product_ids": ["prod_009"],
+    "difficulty": "easy",
+    "category": "electronics/laptops",
+    "description": "Budget laptop query"
+  },
+  {
+    "id": "task_004",
+    "user_query": "Give me wired open-back headphones for home listening",
+    "constraints": {"required_attributes": {"wired": true, "open_back": true}},
+    "needs_clarification": false,
+    "acceptable_product_ids": ["prod_004"],
+    "difficulty": "easy",
+    "category": "electronics/headphones",
+    "description": "Audiophile headphones for home"
+  },
+  {
+    "id": "task_005",
+    "user_query": "I need running shoes for daily training under $140",
+    "constraints": {"budget_max": 140, "required_attributes": {"best_for": "daily-training"}},
+    "needs_clarification": false,
+    "acceptable_product_ids": ["prod_017", "prod_020"],
+    "difficulty": "easy",
+    "category": "sports/shoes",
+    "description": "Daily running shoes with budget"
+  },
+  {
+    "id": "task_006",
+    "user_query": "I need a large drip coffee maker for my office",
+    "constraints": {"required_attributes": {"type": "drip"}},
+    "needs_clarification": false,
+    "acceptable_product_ids": ["prod_013"],
+    "difficulty": "easy",
+    "category": "home/coffee",
+    "description": "Office drip coffee maker"
+  },
+  {
+    "id": "task_007",
+    "user_query": "I want noise-canceling headphones",
+    "constraints": {"required_attributes": {"noise_canceling": true}},
+    "needs_clarification": false,
+    "acceptable_product_ids": ["prod_001", "prod_002", "prod_005"],
+    "difficulty": "easy",
+    "category": "electronics/headphones",
+    "description": "Any noise-canceling headphones"
+  },
+  {
+    "id": "task_008",
+    "user_query": "I need a travel backpack that fits in the overhead bin",
+    "constraints": {"required_attributes": {"carry_on_compatible": true}},
+    "needs_clarification": false,
+    "acceptable_product_ids": ["prod_021"],
+    "difficulty": "easy",
+    "category": "bags/backpacks",
+    "description": "Carry-on backpack for travel"
+  },
+  {
+    "id": "task_009",
+    "user_query": "I need a backpack for business use with laptop compartment under $100",
+    "constraints": {"budget_max": 100, "required_attributes": {"laptop_compartment": true, "use_case": "business"}},
+    "needs_clarification": false,
+    "acceptable_product_ids": ["prod_023", "prod_024"],
+    "difficulty": "easy",
+    "category": "bags/backpacks",
+    "description": "Business backpack with laptop compartment"
+  },
+  {
+    "id": "task_010",
+    "user_query": "I need a quick single-cup coffee maker under $100",
+    "constraints": {"budget_max": 100, "required_attributes": {"capacity_cups": 1}},
+    "needs_clarification": false,
+    "acceptable_product_ids": ["prod_012", "prod_014"],
+    "difficulty": "easy",
+    "category": "home/coffee",
+    "description": "Single-serve coffee under budget"
+  },
+  {
+    "id": "task_011",
+    "user_query": "I want wireless noise-canceling headphones with at least 25 hours of battery life under $350",
+    "constraints": {"budget_max": 350, "required_attributes": {"noise_canceling": true, "wireless": true, "battery_hours_min": 25}},
+    "needs_clarification": false,
+    "acceptable_product_ids": ["prod_001"],
+    "difficulty": "medium",
+    "category": "electronics/headphones",
+    "description": "Premium NC headphones with long battery"
+  },
+  {
+    "id": "task_012",
+    "user_query": "I need a college laptop with at least 16GB RAM and good battery life under $800",
+    "constraints": {"budget_max": 800, "required_attributes": {"ram_gb_min": 16, "battery_hours_min": 9}, "categories": ["electronics/laptops"]},
+    "needs_clarification": false,
+    "acceptable_product_ids": ["prod_008", "prod_010"],
+    "difficulty": "medium",
+    "category": "electronics/laptops",
+    "description": "College laptop with specs and budget constraints"
+  },
+  {
+    "id": "task_013",
+    "user_query": "I'm training for a marathon and need maximum cushioning running shoes",
+    "constraints": {"required_attributes": {"cushioning": "max", "best_for": "long-distance"}},
+    "needs_clarification": false,
+    "acceptable_product_ids": ["prod_018", "prod_019"],
+    "difficulty": "medium",
+    "category": "sports/shoes",
+    "description": "Marathon training shoes with max cushioning"
+  },
+  {
+    "id": "task_014",
+    "user_query": "I want a home espresso setup with built-in grinder under $800",
+    "constraints": {"budget_max": 800, "required_attributes": {"type": "espresso", "has_grinder": true}},
+    "needs_clarification": false,
+    "acceptable_product_ids": ["prod_011"],
+    "difficulty": "medium",
+    "category": "home/coffee",
+    "description": "Espresso with integrated grinder"
+  },
+  {
+    "id": "task_015",
+    "user_query": "I need noise-canceling headphones for long international flights under $300",
+    "constraints": {"budget_max": 300, "required_attributes": {"noise_canceling": true}},
+    "needs_clarification": false,
+    "acceptable_product_ids": ["prod_002", "prod_005"],
+    "difficulty": "medium",
+    "category": "electronics/headphones",
+    "description": "Travel NC headphones with budget"
+  },
+  {
+    "id": "task_016",
+    "user_query": "I need a MacBook with at least 16GB RAM",
+    "constraints": {"required_attributes": {"brand": "Apple", "ram_gb_min": 16}},
+    "needs_clarification": false,
+    "acceptable_product_ids": [],
+    "difficulty": "medium",
+    "category": "electronics/laptops",
+    "description": "MacBook with 16GB RAM - impossible in catalog (only 8GB available)"
+  },
+  {
+    "id": "task_017",
+    "user_query": "I need a laptop that lasts all day - at least 12 hours of battery",
+    "constraints": {"required_attributes": {"battery_hours_min": 12}},
+    "needs_clarification": false,
+    "acceptable_product_ids": ["prod_006", "prod_007"],
+    "difficulty": "medium",
+    "category": "electronics/laptops",
+    "description": "Laptop with 12+ hour battery"
+  },
+  {
+    "id": "task_018",
+    "user_query": "I want running shoes that are good for both speed work and easy long runs",
+    "constraints": {"required_attributes": {"best_for": "versatile"}},
+    "needs_clarification": false,
+    "acceptable_product_ids": ["prod_017", "prod_020"],
+    "difficulty": "medium",
+    "category": "sports/shoes",
+    "description": "Versatile running shoes for mixed training"
+  },
+  {
+    "id": "task_019",
+    "user_query": "I need a laptop for professional photo editing with a large display and 16GB RAM",
+    "constraints": {"required_attributes": {"ram_gb_min": 16, "display_inches_min": 15}},
+    "needs_clarification": false,
+    "acceptable_product_ids": ["prod_007", "prod_008", "prod_010"],
+    "difficulty": "medium",
+    "category": "electronics/laptops",
+    "description": "Professional laptop for photo editing"
+  },
+  {
+    "id": "task_020",
+    "user_query": "I want Apple headphones with noise canceling",
+    "constraints": {"required_attributes": {"brand": "Apple", "noise_canceling": true}},
+    "needs_clarification": false,
+    "acceptable_product_ids": ["prod_005"],
+    "difficulty": "medium",
+    "category": "electronics/headphones",
+    "description": "Apple ANC headphones specifically"
+  },
+  {
+    "id": "task_021",
+    "user_query": "I need something for my commute",
+    "constraints": {},
+    "needs_clarification": true,
+    "acceptable_product_ids": ["prod_001", "prod_002", "prod_003", "prod_005", "prod_021", "prod_022", "prod_023"],
+    "difficulty": "hard",
+    "category": "mixed",
+    "description": "Ambiguous commute query - could be headphones, backpack, or laptop"
+  },
+  {
+    "id": "task_022",
+    "user_query": "I want to get a gift for my friend who loves coffee",
+    "constraints": {},
+    "needs_clarification": true,
+    "acceptable_product_ids": ["prod_011", "prod_012", "prod_013", "prod_014", "prod_015"],
+    "difficulty": "hard",
+    "category": "home/coffee",
+    "description": "Gift query needing budget and preference clarification"
+  },
+  {
+    "id": "task_023",
+    "user_query": "What's the best laptop for the money?",
+    "constraints": {},
+    "needs_clarification": true,
+    "acceptable_product_ids": ["prod_008", "prod_009", "prod_010"],
+    "difficulty": "hard",
+    "category": "electronics/laptops",
+    "description": "Vague value query needing use case and budget clarification"
+  },
+  {
+    "id": "task_024",
+    "user_query": "I need a professional setup for my home office",
+    "constraints": {},
+    "needs_clarification": true,
+    "acceptable_product_ids": ["prod_001", "prod_002", "prod_007", "prod_008", "prod_021", "prod_022"],
+    "difficulty": "hard",
+    "category": "mixed",
+    "description": "Broad 'professional setup' - needs major clarification on domain and budget"
+  },
+  {
+    "id": "task_025",
+    "user_query": "I need noise-canceling headphones with 40+ hour battery for under $50",
+    "constraints": {"budget_max": 50, "required_attributes": {"noise_canceling": true, "battery_hours_min": 40}},
+    "needs_clarification": false,
+    "acceptable_product_ids": [],
+    "difficulty": "hard",
+    "category": "electronics/headphones",
+    "description": "Impossible constraint combination - no NC headphones under $50 exist in catalog"
+  },
+  {
+    "id": "task_026",
+    "user_query": "I'm starting to run. What do I need?",
+    "constraints": {},
+    "needs_clarification": true,
+    "acceptable_product_ids": ["prod_017", "prod_020", "prod_003"],
+    "difficulty": "hard",
+    "category": "mixed",
+    "description": "Beginner runner query - needs clarification on budget and what exactly they need"
+  },
+  {
+    "id": "task_027",
+    "user_query": "I need a laptop with 32GB RAM under $700",
+    "constraints": {"budget_max": 700, "required_attributes": {"ram_gb_min": 32}},
+    "needs_clarification": false,
+    "acceptable_product_ids": [],
+    "difficulty": "hard",
+    "category": "electronics/laptops",
+    "description": "Impossible specs - no 32GB laptop under $700 in catalog"
+  },
+  {
+    "id": "task_028",
+    "user_query": "I need wireless headphones AND a backpack with laptop compartment, total budget $150",
+    "constraints": {"budget_max": 150, "required_attributes": {"wireless": true, "laptop_compartment": true}, "quantity": 2},
+    "needs_clarification": false,
+    "acceptable_product_ids": ["prod_003", "prod_024"],
+    "difficulty": "hard",
+    "category": "mixed",
+    "description": "Bundle query requiring two items under tight budget"
+  },
+  {
+    "id": "task_029",
+    "user_query": "I want the absolute best noise-canceling headphones regardless of price",
+    "constraints": {"required_attributes": {"noise_canceling": true}},
+    "needs_clarification": false,
+    "acceptable_product_ids": ["prod_001"],
+    "difficulty": "medium",
+    "category": "electronics/headphones",
+    "description": "Best NC headphones, no budget constraint"
+  },
+  {
+    "id": "task_030",
+    "user_query": "I need running shoes AND wireless headphones for my marathon training, total under $250",
+    "constraints": {"budget_max": 250, "required_attributes": {"wireless": true, "best_for": "long-distance"}, "quantity": 2},
+    "needs_clarification": false,
+    "acceptable_product_ids": ["prod_003", "prod_017", "prod_003", "prod_020"],
+    "difficulty": "hard",
+    "category": "mixed",
+    "description": "Bundle: marathon shoes + wireless headphones under $250"
+  }
+]

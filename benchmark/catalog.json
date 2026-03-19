@@ -1,0 +1,468 @@
+[
+  {
+    "id": "prod_001",
+    "name": "Sony WH-1000XM5",
+    "category": "electronics/headphones",
+    "price": 349.99,
+    "attributes": {
+      "brand": "Sony",
+      "noise_canceling": true,
+      "wireless": true,
+      "wired": false,
+      "battery_hours": 30,
+      "open_back": false,
+      "use_case": ["commute", "travel", "office"]
+    },
+    "description": "Industry-leading noise canceling headphones with 30-hour battery life and premium sound quality.",
+    "rating": 4.8,
+    "in_stock": true
+  },
+  {
+    "id": "prod_002",
+    "name": "Bose QuietComfort 45",
+    "category": "electronics/headphones",
+    "price": 279.00,
+    "attributes": {
+      "brand": "Bose",
+      "noise_canceling": true,
+      "wireless": true,
+      "wired": true,
+      "battery_hours": 24,
+      "open_back": false,
+      "use_case": ["commute", "travel", "office"]
+    },
+    "description": "Comfortable all-day noise canceling headphones with balanced sound and 24-hour battery.",
+    "rating": 4.7,
+    "in_stock": true
+  },
+  {
+    "id": "prod_003",
+    "name": "JBL Tune 510BT",
+    "category": "electronics/headphones",
+    "price": 39.95,
+    "attributes": {
+      "brand": "JBL",
+      "noise_canceling": false,
+      "wireless": true,
+      "wired": true,
+      "battery_hours": 40,
+      "open_back": false,
+      "use_case": ["casual", "commute", "workout"]
+    },
+    "description": "Budget wireless headphones with 40-hour battery and JBL Pure Bass sound.",
+    "rating": 4.3,
+    "in_stock": true
+  },
+  {
+    "id": "prod_004",
+    "name": "Sennheiser HD 560S",
+    "category": "electronics/headphones",
+    "price": 129.95,
+    "attributes": {
+      "brand": "Sennheiser",
+      "noise_canceling": false,
+      "wireless": false,
+      "wired": true,
+      "battery_hours": null,
+      "open_back": true,
+      "use_case": ["studio", "audiophile", "home"]
+    },
+    "description": "Open-back audiophile headphones with neutral sound signature for critical listening.",
+    "rating": 4.6,
+    "in_stock": true
+  },
+  {
+    "id": "prod_005",
+    "name": "Apple AirPods Pro (2nd gen)",
+    "category": "electronics/headphones",
+    "price": 249.00,
+    "attributes": {
+      "brand": "Apple",
+      "noise_canceling": true,
+      "wireless": true,
+      "wired": false,
+      "battery_hours": 6,
+      "open_back": false,
+      "form_factor": "earbuds",
+      "use_case": ["commute", "workout", "calls"]
+    },
+    "description": "Premium earbuds with adaptive noise cancellation, spatial audio, and Apple ecosystem integration.",
+    "rating": 4.8,
+    "in_stock": true
+  },
+  {
+    "id": "prod_006",
+    "name": "MacBook Air M2",
+    "category": "electronics/laptops",
+    "price": 1099.00,
+    "attributes": {
+      "brand": "Apple",
+      "ram_gb": 8,
+      "storage_gb": 256,
+      "battery_hours": 18,
+      "display_inches": 13.6,
+      "weight_lbs": 2.7,
+      "os": "macOS",
+      "use_case": ["college", "creative", "general"]
+    },
+    "description": "Thin, light, fanless laptop with Apple M2 chip offering exceptional performance and 18-hour battery.",
+    "rating": 4.9,
+    "in_stock": true
+  },
+  {
+    "id": "prod_007",
+    "name": "Dell XPS 15",
+    "category": "electronics/laptops",
+    "price": 1299.00,
+    "attributes": {
+      "brand": "Dell",
+      "ram_gb": 16,
+      "storage_gb": 512,
+      "battery_hours": 12,
+      "display_inches": 15.6,
+      "weight_lbs": 4.2,
+      "os": "Windows",
+      "use_case": ["professional", "creative", "gaming-light"]
+    },
+    "description": "Premium Windows laptop with OLED display, powerful specs for professional work and creative tasks.",
+    "rating": 4.6,
+    "in_stock": true
+  },
+  {
+    "id": "prod_008",
+    "name": "Lenovo ThinkPad E15",
+    "category": "electronics/laptops",
+    "price": 699.00,
+    "attributes": {
+      "brand": "Lenovo",
+      "ram_gb": 16,
+      "storage_gb": 512,
+      "battery_hours": 10,
+      "display_inches": 15.6,
+      "weight_lbs": 3.9,
+      "os": "Windows",
+      "use_case": ["business", "college", "office"]
+    },
+    "description": "Reliable business laptop with 16GB RAM, durable build, and strong keyboard.",
+    "rating": 4.4,
+    "in_stock": true
+  },
+  {
+    "id": "prod_009",
+    "name": "ASUS VivoBook 15",
+    "category": "electronics/laptops",
+    "price": 449.00,
+    "attributes": {
+      "brand": "ASUS",
+      "ram_gb": 8,
+      "storage_gb": 256,
+      "battery_hours": 8,
+      "display_inches": 15.6,
+      "weight_lbs": 3.5,
+      "os": "Windows",
+      "use_case": ["college", "general", "budget"]
+    },
+    "description": "Affordable everyday laptop with solid performance for students and general use.",
+    "rating": 4.2,
+    "in_stock": true
+  },
+  {
+    "id": "prod_010",
+    "name": "HP Pavilion 15",
+    "category": "electronics/laptops",
+    "price": 549.00,
+    "attributes": {
+      "brand": "HP",
+      "ram_gb": 16,
+      "storage_gb": 512,
+      "battery_hours": 9,
+      "display_inches": 15.6,
+      "weight_lbs": 3.7,
+      "os": "Windows",
+      "use_case": ["college", "general", "office"]
+    },
+    "description": "Mid-range laptop with 16GB RAM and 512GB SSD offering good value for students and professionals.",
+    "rating": 4.3,
+    "in_stock": true
+  },
+  {
+    "id": "prod_011",
+    "name": "Breville Barista Express",
+    "category": "home/coffee",
+    "price": 699.95,
+    "attributes": {
+      "brand": "Breville",
+      "type": "espresso",
+      "has_grinder": true,
+      "capacity_cups": 1,
+      "milk_frother": true,
+      "ease_of_use": "intermediate",
+      "use_case": ["espresso", "latte", "cappuccino"]
+    },
+    "description": "All-in-one espresso machine with built-in grinder for fresh-ground espresso at home.",
+    "rating": 4.7,
+    "in_stock": true
+  },
+  {
+    "id": "prod_012",
+    "name": "Nespresso Vertuo Plus",
+    "category": "home/coffee",
+    "price": 179.00,
+    "attributes": {
+      "brand": "Nespresso",
+      "type": "capsule",
+      "has_grinder": false,
+      "capacity_cups": 1,
+      "milk_frother": false,
+      "ease_of_use": "beginner",
+      "use_case": ["espresso", "coffee", "quick"]
+    },
+    "description": "One-touch capsule coffee machine making espresso, double espresso, gran lungo, and more.",
+    "rating": 4.5,
+    "in_stock": true
+  },
+  {
+    "id": "prod_013",
+    "name": "Cuisinart DCC-3200",
+    "category": "home/coffee",
+    "price": 79.95,
+    "attributes": {
+      "brand": "Cuisinart",
+      "type": "drip",
+      "has_grinder": false,
+      "capacity_cups": 14,
+      "milk_frother": false,
+      "ease_of_use": "beginner",
+      "use_case": ["drip", "large-batch", "office"]
+    },
+    "description": "14-cup programmable drip coffee maker with thermal carafe and brew-strength control.",
+    "rating": 4.4,
+    "in_stock": true
+  },
+  {
+    "id": "prod_014",
+    "name": "Keurig K-Classic",
+    "category": "home/coffee",
+    "price": 89.00,
+    "attributes": {
+      "brand": "Keurig",
+      "type": "pod",
+      "has_grinder": false,
+      "capacity_cups": 1,
+      "milk_frother": false,
+      "ease_of_use": "beginner",
+      "use_case": ["single-serve", "quick", "variety"]
+    },
+    "description": "Single-serve K-Cup pod coffee maker with multiple brew sizes and auto-off feature.",
+    "rating": 4.3,
+    "in_stock": true
+  },
+  {
+    "id": "prod_015",
+    "name": "Bialetti Moka Express",
+    "category": "home/coffee",
+    "price": 34.99,
+    "attributes": {
+      "brand": "Bialetti",
+      "type": "stovetop",
+      "has_grinder": false,
+      "capacity_cups": 3,
+      "milk_frother": false,
+      "ease_of_use": "beginner",
+      "use_case": ["espresso", "stovetop", "budget"]
+    },
+    "description": "Classic Italian stovetop espresso maker, the original Moka pot for rich espresso on any stove.",
+    "rating": 4.6,
+    "in_stock": true
+  },
+  {
+    "id": "prod_016",
+    "name": "Nike Air Max 270",
+    "category": "sports/shoes",
+    "price": 150.00,
+    "attributes": {
+      "brand": "Nike",
+      "cushioning": "high",
+      "support": "neutral",
+      "drop_mm": 8,
+      "weight_oz": 10.6,
+      "terrain": ["road", "treadmill"],
+      "best_for": ["casual", "short-runs", "lifestyle"],
+      "sizes": [6, 6.5, 7, 7.5, 8, 8.5, 9, 9.5, 10, 10.5, 11, 12, 13]
+    },
+    "description": "Max-cushioned lifestyle sneaker with Air Max unit for all-day comfort and casual runs.",
+    "rating": 4.4,
+    "in_stock": true
+  },
+  {
+    "id": "prod_017",
+    "name": "Brooks Ghost 15",
+    "category": "sports/shoes",
+    "price": 130.00,
+    "attributes": {
+      "brand": "Brooks",
+      "cushioning": "medium",
+      "support": "neutral",
+      "drop_mm": 12,
+      "weight_oz": 9.5,
+      "terrain": ["road", "treadmill"],
+      "best_for": ["daily-training", "long-distance", "high-mileage"],
+      "sizes": [6, 6.5, 7, 7.5, 8, 8.5, 9, 9.5, 10, 10.5, 11, 12, 13]
+    },
+    "description": "Reliable everyday trainer with smooth cushioning and high durability for high-mileage runners.",
+    "rating": 4.7,
+    "in_stock": true
+  },
+  {
+    "id": "prod_018",
+    "name": "ASICS Gel-Nimbus 25",
+    "category": "sports/shoes",
+    "price": 159.95,
+    "attributes": {
+      "brand": "ASICS",
+      "cushioning": "max",
+      "support": "neutral",
+      "drop_mm": 8,
+      "weight_oz": 10.7,
+      "terrain": ["road"],
+      "best_for": ["long-distance", "marathon", "easy-runs"],
+      "sizes": [6, 6.5, 7, 7.5, 8, 8.5, 9, 9.5, 10, 10.5, 11, 12, 13]
+    },
+    "description": "Maximum cushioning road shoe designed for long-distance running with superior comfort.",
+    "rating": 4.6,
+    "in_stock": true
+  },
+  {
+    "id": "prod_019",
+    "name": "New Balance Fresh Foam 1080v12",
+    "category": "sports/shoes",
+    "price": 164.99,
+    "attributes": {
+      "brand": "New Balance",
+      "cushioning": "max",
+      "support": "neutral",
+      "drop_mm": 6,
+      "weight_oz": 10.4,
+      "terrain": ["road"],
+      "best_for": ["long-distance", "easy-runs", "recovery"],
+      "sizes": [6, 6.5, 7, 7.5, 8, 8.5, 9, 9.5, 10, 10.5, 11, 12, 13]
+    },
+    "description": "Ultra-cushioned trainer offering a plush, premium ride for everyday and long-distance running.",
+    "rating": 4.7,
+    "in_stock": true
+  },
+  {
+    "id": "prod_020",
+    "name": "Saucony Ride 15",
+    "category": "sports/shoes",
+    "price": 129.95,
+    "attributes": {
+      "brand": "Saucony",
+      "cushioning": "medium",
+      "support": "neutral",
+      "drop_mm": 8,
+      "weight_oz": 9.4,
+      "terrain": ["road", "treadmill"],
+      "best_for": ["daily-training", "versatile", "tempo"],
+      "sizes": [6, 6.5, 7, 7.5, 8, 8.5, 9, 9.5, 10, 10.5, 11, 12, 13]
+    },
+    "description": "Versatile everyday trainer with smooth and balanced cushioning for a wide range of training paces.",
+    "rating": 4.5,
+    "in_stock": true
+  },
+  {
+    "id": "prod_021",
+    "name": "Osprey Farpoint 40",
+    "category": "bags/backpacks",
+    "price": 180.00,
+    "attributes": {
+      "brand": "Osprey",
+      "volume_liters": 40,
+      "laptop_compartment": true,
+      "max_laptop_inches": 15,
+      "weight_lbs": 2.6,
+      "carry_on_compatible": true,
+      "use_case": ["travel", "backpacking", "weekend"],
+      "material": "nylon"
+    },
+    "description": "Travel-optimized 40L backpack with panel-loading design, carry-on compatible, and laptop sleeve.",
+    "rating": 4.7,
+    "in_stock": true
+  },
+  {
+    "id": "prod_022",
+    "name": "Herschel Little America",
+    "category": "bags/backpacks",
+    "price": 109.99,
+    "attributes": {
+      "brand": "Herschel",
+      "volume_liters": 25,
+      "laptop_compartment": true,
+      "max_laptop_inches": 15,
+      "weight_lbs": 1.4,
+      "carry_on_compatible": false,
+      "use_case": ["daily", "school", "casual"],
+      "material": "polyester"
+    },
+    "description": "Iconic daypack with classic heritage style, fleece-lined laptop sleeve, and magnetic buckle closure.",
+    "rating": 4.5,
+    "in_stock": true
+  },
+  {
+    "id": "prod_023",
+    "name": "The North Face Recon",
+    "category": "bags/backpacks",
+    "price": 99.00,
+    "attributes": {
+      "brand": "The North Face",
+      "volume_liters": 30,
+      "laptop_compartment": true,
+      "max_laptop_inches": 15,
+      "weight_lbs": 1.7,
+      "carry_on_compatible": false,
+      "use_case": ["hiking", "daily", "school"],
+      "material": "recycled nylon"
+    },
+    "description": "Durable everyday backpack with padded laptop compartment and organized pockets for commuting and hiking.",
+    "rating": 4.6,
+    "in_stock": true
+  },
+  {
+    "id": "prod_024",
+    "name": "Samsonite Classic Business Backpack",
+    "category": "bags/backpacks",
+    "price": 54.99,
+    "attributes": {
+      "brand": "Samsonite",
+      "volume_liters": 20,
+      "laptop_compartment": true,
+      "max_laptop_inches": 15.6,
+      "weight_lbs": 1.1,
+      "carry_on_compatible": false,
+      "use_case": ["business", "office", "daily"],
+      "material": "polyester"
+    },
+    "description": "Professional business backpack with dedicated padded laptop section and organizer panel.",
+    "rating": 4.3,
+    "in_stock": true
+  },
+  {
+    "id": "prod_025",
+    "name": "JanSport SuperBreak",
+    "category": "bags/backpacks",
+    "price": 34.99,
+    "attributes": {
+      "brand": "JanSport",
+      "volume_liters": 25,
+      "laptop_compartment": false,
+      "max_laptop_inches": null,
+      "weight_lbs": 0.6,
+      "carry_on_compatible": false,
+      "use_case": ["school", "casual", "daily"],
+      "material": "polyester"
+    },
+    "description": "Classic lightweight school backpack with two compartments, available in dozens of colors.",
+    "rating": 4.4,
+    "in_stock": true
+  }
+]
