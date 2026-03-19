@@ -1211,5 +1211,71 @@
       "gold_categories": ["monitor", "keyboard", "mouse"],
       "note": "AOC(999)+A4Tech(79)+小米鼠标(69)=1147，极度卡预算"
     }
+  },
+  {
+    "task_id": "t053",
+    "query": "我已经有键盘了，想把办公桌搭补齐，再配个显示器和耳机，预算5000",
+    "task_type": "bundle",
+    "task_family": "upgrade_path",
+    "categories": ["monitor", "headset"],
+    "constraints": {
+      "budget_total": {"value": 5000.0, "severity": "hard"}
+    },
+    "user_profile_overrides": {
+      "owned_items": [
+        {"product_id": "owned_keyboard", "category": "keyboard", "brand": "Logitech"}
+      ],
+      "active_setups": {
+        "monitor_setup": {
+          "owned": ["owned_keyboard"],
+          "missing": ["monitor_arm"],
+          "style": "clean",
+          "next_best_upgrade": "monitor_arm"
+        }
+      },
+      "upgrade_stage": {"monitor_setup": "growing"},
+      "purchase_rhythm": {"avg_spend": 1100.0, "purchase_count": 3, "cadence": "incremental"}
+    },
+    "uncertainty_slots": {},
+    "ambiguity_level": 0.1,
+    "clarification_needed": false,
+    "task_difficulty": "medium",
+    "expected": {
+      "feasible": true,
+      "min_results": 1,
+      "budget_satisfied": true,
+      "required_attrs": [],
+      "acceptable_budget_range": [0, 5000],
+      "forbidden_violations": ["budget_exceed"],
+      "gold_categories": ["monitor", "headset"]
+    }
+  },
+  {
+    "task_id": "t054",
+    "query": "想先把桌面核心件买起来，显示器和键盘先上，耳机以后再补，预算3000",
+    "task_type": "bundle",
+    "task_family": "phased_purchase",
+    "categories": ["monitor", "keyboard", "headset"],
+    "constraints": {
+      "budget_total": {"value": 3000.0, "severity": "hard"}
+    },
+    "user_profile_overrides": {
+      "purchase_rhythm": {"avg_spend": 600.0, "purchase_count": 4, "cadence": "incremental"},
+      "identity_goal": {"professional": 0.8},
+      "aesthetic_preference": {"clean": 0.8, "premium": 0.5}
+    },
+    "uncertainty_slots": {},
+    "ambiguity_level": 0.2,
+    "clarification_needed": false,
+    "task_difficulty": "hard",
+    "expected": {
+      "feasible": true,
+      "min_results": 1,
+      "budget_satisfied": true,
+      "required_attrs": [],
+      "acceptable_budget_range": [0, 3000],
+      "forbidden_violations": ["budget_exceed"],
+      "gold_categories": ["monitor", "keyboard", "headset"]
+    }
   }
 ]

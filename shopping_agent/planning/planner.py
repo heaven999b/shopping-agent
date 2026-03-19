@@ -255,6 +255,10 @@ class ConstraintAwarePlanner:
         phased_options = self._build_phased_purchase_options(
             task, items, budget, user_profile
         )
+        long_term_fit = self._long_term_fit_score(task, items, user_profile)
+        phased_purchase_score = self._phased_purchase_score(
+            phased_options, total_price, budget, user_profile
+        )
 
         tradeoff_notes = self._build_tradeoff_notes(
             tier_name,
@@ -288,6 +292,8 @@ class ConstraintAwarePlanner:
             style_coherence_score=round(style_coherence, 3),
             scenario_fit_score=round(scenario_fit, 3),
             bundle_completeness_score=round(bundle_completeness, 3),
+            long_term_fit_score=round(long_term_fit, 3),
+            phased_purchase_score=round(phased_purchase_score, 3),
             tradeoff_notes=tradeoff_notes,
             explanation=self._build_explanation(
                 tier_name, items, total_price, budget, avg_persona, user_profile
@@ -317,6 +323,7 @@ class ConstraintAwarePlanner:
         # 预算内候选优先
         affordable = [p for p in candidates if p.final_price <= remaining_budget]
         pool = affordable if affordable else candidates
+        pool = self._filter_owned_duplicates(pool, user_profile) or pool
 
         if strategy == "cheapest":
             product = min(pool, key=lambda p: p.final_price)
@@ -335,6 +342,19 @@ class ConstraintAwarePlanner:
             "persona": self._persona_alignment_score(product, user_profile),
         }
         return product, scores
+
+    @staticmethod
+    def _filter_owned_duplicates(
+        candidates: list[Product],
+        user_profile: Optional[UserProfile],
+    ) -> list[Product]:
+        if user_profile is None:
+            return candidates
+        owned_ids = {item.get("product_id") for item in getattr(user_profile, "owned_items", [])}
+        if not owned_ids:
+            return candidates
+        filtered = [product for product in candidates if product.product_id not in owned_ids]
+        return filtered
 
     # ------------------------------------------------------------------
     # RL 规划
@@ -422,6 +442,7 @@ class ConstraintAwarePlanner:
             + SCORE_WEIGHT_PREFERENCE * self._preference_score(p, user_profile)
             + SCORE_WEIGHT_VALUE * self._value_score(p, per_slot_budget)
             + 0.15 * self._persona_alignment_score(p, user_profile)
+            + 0.12 * self._growth_alignment_score(p, user_profile)
         )
 
     @staticmethod
@@ -535,6 +556,10 @@ class ConstraintAwarePlanner:
         phased_options = self._build_phased_purchase_options(
             task, items, budget, user_profile
         )
+        long_term_fit = self._long_term_fit_score(task, items, user_profile)
+        phased_purchase_score = self._phased_purchase_score(
+            phased_options, total, budget, user_profile
+        )
         return CandidatePlan(
             plan_id=str(uuid.uuid4()),
             task_id=task.task_id,
@@ -548,6 +573,8 @@ class ConstraintAwarePlanner:
             style_coherence_score=round(style_coherence, 3),
             scenario_fit_score=round(scenario_fit, 3),
             bundle_completeness_score=round(bundle_completeness, 3),
+            long_term_fit_score=round(long_term_fit, 3),
+            phased_purchase_score=round(phased_purchase_score, 3),
             tradeoff_notes=self._build_tradeoff_notes(
                 tier_name,
                 constraint_score,
@@ -722,6 +749,39 @@ class ConstraintAwarePlanner:
         return allocation
 
     @staticmethod
+    def _growth_alignment_score(
+        product: Product,
+        user_profile: Optional[UserProfile],
+    ) -> float:
+        if user_profile is None:
+            return 0.0
+
+        score = 0.0
+        owned_ids = {item.get("product_id") for item in getattr(user_profile, "owned_items", [])}
+        owned_categories = {item.get("category") for item in getattr(user_profile, "owned_items", [])}
+        if product.product_id in owned_ids:
+            score -= 0.6
+        if product.category in owned_categories:
+            score -= 0.08
+
+        active_setups = getattr(user_profile, "active_setups", {})
+        for setup in active_setups.values():
+            missing = setup.get("missing", [])
+            next_upgrade = setup.get("next_best_upgrade")
+            if product.category in missing or product.product_id in missing:
+                score += 0.18
+            if next_upgrade and (product.category == next_upgrade or product.product_id == next_upgrade):
+                score += 0.22
+
+        cadence = getattr(user_profile, "purchase_rhythm", {}).get("cadence")
+        if cadence == "incremental" and product.final_price <= 1000:
+            score += 0.08
+        elif cadence == "upgrade_oriented" and product.final_price >= 1500:
+            score += 0.08
+
+        return max(-0.6, min(1.0, score))
+
+    @staticmethod
     def _style_coherence_score(items: list[PlanItem]) -> float:
         if len(items) <= 1:
             return 1.0
@@ -771,6 +831,39 @@ class ConstraintAwarePlanner:
         covered = {item.bundle_slot for item in items}
         return len(covered) / len(task.categories)
 
+    def _long_term_fit_score(
+        self,
+        task: ShoppingTask,
+        items: list[PlanItem],
+        user_profile: Optional[UserProfile],
+    ) -> float:
+        if not items:
+            return 0.0
+        if user_profile is None:
+            return 0.5
+
+        scores = [max(0.0, self._growth_alignment_score(item.product, user_profile)) for item in items]
+        score = sum(scores) / len(scores) if scores else 0.0
+
+        active_setups = getattr(user_profile, "active_setups", {})
+        for category in task.categories:
+            setup = active_setups.get(f"{category}_setup")
+            if not setup:
+                continue
+            if setup.get("next_best_upgrade"):
+                score += 0.08
+            if setup.get("missing"):
+                score += 0.05
+
+        stage_values = {"starter": 0.58, "growing": 0.72, "refinement": 0.82}
+        if user_profile.upgrade_stage:
+            avg_stage = sum(stage_values.get(v, 0.6) for v in user_profile.upgrade_stage.values()) / len(
+                user_profile.upgrade_stage
+            )
+            score = (score + avg_stage) / 2
+
+        return min(1.0, score)
+
     def _build_phased_purchase_options(
         self,
         task: ShoppingTask,
@@ -816,6 +909,32 @@ class ConstraintAwarePlanner:
                 "budget": round(conservative_item.product.final_price, 2),
             },
         ]
+
+    @staticmethod
+    def _phased_purchase_score(
+        phased_options: list[dict[str, Any]],
+        total: float,
+        budget: float,
+        user_profile: Optional[UserProfile],
+    ) -> float:
+        if not phased_options:
+            return 0.0
+        if budget <= 0:
+            return 0.7
+
+        pressure = total / budget
+        score = 1.0 if pressure <= 0.85 else max(0.2, 1.0 - (pressure - 0.85) * 1.8)
+        if pressure > 0.9 and len(phased_options) >= 2:
+            phase_one_budget = phased_options[1].get("phase_1_budget", total)
+            score = max(score, min(1.0, budget / max(phase_one_budget, 1.0)) * 0.7)
+
+        cadence = getattr(user_profile, "purchase_rhythm", {}).get("cadence") if user_profile else None
+        if cadence == "incremental" and len(phased_options) >= 2:
+            score = min(1.0, score + 0.1)
+        elif cadence == "upgrade_oriented" and pressure <= 1.0:
+            score = min(1.0, score + 0.05)
+
+        return max(0.0, min(1.0, score))
 
     @staticmethod
     def _build_bundle_tradeoff_notes(

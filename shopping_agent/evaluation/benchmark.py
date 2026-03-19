@@ -30,6 +30,7 @@ from shopping_agent.common.types import (
     ConstraintSeverity,
     ShoppingTask,
     TaskType,
+    UserProfile,
 )
 from shopping_agent.data.loader import load_benchmark_tasks
 from shopping_agent.evaluation.metrics import MetricsComputer, TaskResult
@@ -120,6 +121,44 @@ def _categorize_failure(result: TaskResult) -> str:
     return "unknown_failure"
 
 
+def _infer_drift_expectation(raw: dict) -> tuple[bool, Optional[str]]:
+    expected = raw.get("expected", {})
+    if "drift_expected" in expected:
+        return bool(expected.get("drift_expected")), expected.get("drift_type")
+    if "drift_expected" in raw:
+        return bool(raw.get("drift_expected")), raw.get("drift_type")
+    return False, None
+
+
+def _infer_task_family(raw: dict) -> str:
+    if raw.get("task_family"):
+        return str(raw["task_family"])
+
+    task_type = raw.get("task_type", "single")
+    uncertainty_slots = raw.get("uncertainty_slots", {})
+    constraints = raw.get("constraints", {})
+    drift_expected, _ = _infer_drift_expectation(raw)
+
+    if drift_expected:
+        return "drift"
+    if raw.get("clarification_needed") or len(uncertainty_slots) >= 2:
+        return "clarification_heavy"
+    if task_type == "bundle":
+        return "bundle"
+    if len(constraints) >= 3:
+        return "constraint_dense"
+    if task_type == "comparison":
+        return "comparison"
+    return "general"
+
+
+def _apply_user_profile_overrides(profile: UserProfile, overrides: dict[str, Any]) -> UserProfile:
+    for key, value in overrides.items():
+        if hasattr(profile, key):
+            setattr(profile, key, value)
+    return profile
+
+
 class BenchmarkRunner:
     """
     Benchmark 运行器。
@@ -178,14 +217,21 @@ class BenchmarkRunner:
             results.append(result)
 
         metrics = self._metrics.compute(results)
+        per_task = [r.to_dict() for r in results]
         report = {
+            "report_schema_version": "v2",
             "run_id": str(uuid.uuid4())[:8],
             "timestamp": datetime.now().isoformat(),
             "mode": "rl" if self._use_rl else "heuristic",
             "benchmark_mode": self._benchmark_mode,
             "num_tasks": len(results),
             "metrics": metrics,
-            "per_task": [r.to_dict() for r in results],
+            "per_task": per_task,
+            "report_sections": {
+                "summary_metrics": metrics,
+                "task_family_summary": metrics.get("task_family_summary", {}),
+                "per_task_results": per_task,
+            },
         }
 
         if verbose:
@@ -203,8 +249,10 @@ class BenchmarkRunner:
         expected = raw.get("expected", {})
         budget = raw.get("constraints", {}).get("budget_total", {}).get("value")
 
-        result = TaskResult(task_id=task_id, query=query)
+        result = TaskResult(task_id=task_id, query=query, task_family=_infer_task_family(raw))
         t_start = time.time()
+        drift_expected, drift_type = _infer_drift_expectation(raw)
+        result.drift_expected = drift_expected
 
         try:
             # 构建 ShoppingTask 并直接注入 orchestrator（跳过 intent parser）
@@ -220,6 +268,11 @@ class BenchmarkRunner:
             # 加载记忆
             state.transition(WorkflowStep.LOAD_MEMORY)
             self.orchestrator._step_load_memory(state)
+            if raw.get("user_profile_overrides"):
+                state.user_profile = _apply_user_profile_overrides(
+                    state.user_profile or UserProfile(user_id=self.user_id),
+                    raw["user_profile_overrides"],
+                )
 
             # 检索
             state.transition(WorkflowStep.RETRIEVE)
@@ -253,6 +306,14 @@ class BenchmarkRunner:
             if state.selected_plan:
                 total = state.selected_plan.total_price
                 result.overall_score = state.selected_plan.overall_score
+                result.plan_persona_alignment_score = state.selected_plan.persona_alignment_score
+                result.persona_reason_coverage = self._compute_persona_reason_coverage(
+                    state.selected_plan
+                )
+                result.style_coherence_score = state.selected_plan.style_coherence_score
+                result.bundle_completeness_score = state.selected_plan.bundle_completeness_score
+                result.long_term_fit_score = state.selected_plan.long_term_fit_score
+                result.phased_purchase_score = state.selected_plan.phased_purchase_score
                 result.budget_satisfied = (budget is None or total <= budget * 1.05)
                 result.budget_ratio = (total / budget) if budget else 0.0
 
@@ -271,6 +332,7 @@ class BenchmarkRunner:
                 result.constraint_hit_rate = _check_required_attrs(
                     plan_items_with_attrs, required_attrs
                 )
+                self._populate_drift_diagnostics(result, state, drift_type)
 
                 # Plan diversity: price variation coefficient across candidate plans
                 all_plans = state.candidate_plans
@@ -297,6 +359,7 @@ class BenchmarkRunner:
                 result.success = result.has_result and result.budget_satisfied
             else:
                 result.success = False
+            self._populate_drift_diagnostics(result, state, drift_type)
 
         except Exception as e:
             result.error = f"{type(e).__name__}: {str(e)}"
@@ -327,8 +390,10 @@ class BenchmarkRunner:
         expected = raw.get("expected", {})
         budget = raw.get("constraints", {}).get("budget_total", {}).get("value")
 
-        result = TaskResult(task_id=task_id, query=query)
+        result = TaskResult(task_id=task_id, query=query, task_family=_infer_task_family(raw))
         t_start = time.time()
+        drift_expected, drift_type = _infer_drift_expectation(raw)
+        result.drift_expected = drift_expected
 
         try:
             response = self.orchestrator.run(user_id=self.user_id, user_input=query)
@@ -347,6 +412,11 @@ class BenchmarkRunner:
             state = self.orchestrator._sessions.get(session_id)
             if state is None:
                 raise RuntimeError(f"Benchmark session not found: {session_id}")
+            if raw.get("user_profile_overrides"):
+                state.user_profile = _apply_user_profile_overrides(
+                    state.user_profile or UserProfile(user_id=self.user_id),
+                    raw["user_profile_overrides"],
+                )
 
             result = self._populate_result_from_state(
                 result=result,
@@ -355,6 +425,7 @@ class BenchmarkRunner:
                 expected=expected,
                 budget=budget,
             )
+            self._populate_drift_diagnostics(result, state, drift_type)
 
             if response.get("needs_input") and self._disable_clarification:
                 result.error = "clarification_disabled"
@@ -404,6 +475,14 @@ class BenchmarkRunner:
         if state.selected_plan:
             total = state.selected_plan.total_price
             result.overall_score = state.selected_plan.overall_score
+            result.plan_persona_alignment_score = state.selected_plan.persona_alignment_score
+            result.persona_reason_coverage = self._compute_persona_reason_coverage(
+                state.selected_plan
+            )
+            result.style_coherence_score = state.selected_plan.style_coherence_score
+            result.bundle_completeness_score = state.selected_plan.bundle_completeness_score
+            result.long_term_fit_score = state.selected_plan.long_term_fit_score
+            result.phased_purchase_score = state.selected_plan.phased_purchase_score
             result.budget_satisfied = (budget is None or total <= budget * 1.05)
             result.budget_ratio = (total / budget) if budget else 0.0
 
@@ -472,6 +551,41 @@ class BenchmarkRunner:
         result.failure_bucket = _categorize_failure(result)
 
         return result
+
+    def _populate_drift_diagnostics(
+        self,
+        result: TaskResult,
+        state,
+        expected_drift_type: Optional[str],
+    ) -> None:
+        recent = {}
+        if getattr(state, "user_profile", None) is not None:
+            recent = getattr(state.user_profile, "recent_persona_drift", {}) or {}
+
+        detected = bool(recent) or bool(state.task and state.task.revision_history)
+        result.drift_detected = detected
+
+        if not result.drift_expected:
+            result.drift_alignment_score = 1.0 if not detected else 0.0
+            return
+
+        if not detected:
+            result.drift_alignment_score = 0.0
+            return
+
+        if expected_drift_type:
+            actual_type = recent.get("type")
+            result.drift_alignment_score = 1.0 if actual_type == expected_drift_type else 0.5
+            return
+
+        result.drift_alignment_score = 1.0
+
+    @staticmethod
+    def _compute_persona_reason_coverage(plan) -> float:
+        if not plan.items:
+            return 0.0
+        covered = sum(1 for item in plan.items if getattr(item, "persona_reason", ""))
+        return covered / len(plan.items)
 
     def _answer_clarification(self, raw: dict, slot: Optional[str]) -> str:
         constraints = raw.get("constraints", {})

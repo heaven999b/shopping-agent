@@ -11,7 +11,7 @@ from shopping_agent.agent.state import AgentState, WorkflowStep
 from shopping_agent.learning.logger import BehaviorLogger
 from shopping_agent.storage.db import SQLiteDB
 from shopping_agent.storage.session_store import SessionStore
-from tests.conftest import make_task
+from tests.conftest import make_plan, make_product, make_task
 
 
 class TestBehaviorLogger:
@@ -64,3 +64,45 @@ class TestOrchestratorPersistence:
         assert restored.clarification_rounds_used == 1
         assert len(restored.conversation_history) == 1
         assert restored.conversation_history[0].user_input == "帮我买耳机"
+
+    def test_response_includes_workspace_artifacts(self, tmp_path):
+        db = SQLiteDB(db_path=":memory:")
+        session_store = SessionStore(db=db)
+        logger = BehaviorLogger(log_path=str(tmp_path / "behavior.jsonl"))
+        orchestrator = ShoppingAgentOrchestrator(
+            session_store=session_store,
+            behavior_logger=logger,
+        )
+
+        state = AgentState(session_id="sess_workspace", user_id="user_workspace")
+        state.task = make_task(
+            task_id="task_workspace",
+            categories=["headset", "monitor"],
+            budget=5000.0,
+        )
+        state.user_profile = orchestrator.preference_memory.load("user_workspace")
+        state.selected_plan = make_plan(
+            plan_id="plan_ws",
+            task_id="task_workspace",
+            products=[
+                make_product(product_id="p1", category="headset", title="办公耳机", price=1200.0),
+                make_product(product_id="p2", category="monitor", title="4K显示器", price=2200.0),
+            ],
+        )
+        state.selected_plan.bundle_type = "bundle_plan"
+        state.selected_plan.bundle_objective = "办公桌搭补齐方案"
+        state.selected_plan.budget_allocation = {"headset": 0.24, "monitor": 0.44}
+        state.selected_plan.phased_purchase_options = [
+            {"route": "一步到位", "goal": "一次性完成", "budget": 3400},
+            {"route": "分阶段升级", "goal": "先核心件后升级", "phase_1_slots": ["monitor"], "phase_1_budget": 2200, "phase_2_slots": ["headset"], "phase_2_budget": 1200},
+        ]
+
+        state.current_workspace = orchestrator._build_plan_workspace(state)
+        response = orchestrator._build_response(state, "这是当前推荐")
+
+        assert "workspace" in response
+        assert response["workspace"]["title"] == "办公桌搭补齐方案"
+        artifact_types = {artifact["artifact_type"] for artifact in response["workspace"]["artifacts"]}
+        assert "growth_snapshot" in artifact_types
+        assert "bundle_recommendation" in artifact_types
+        assert "phase_plan" in artifact_types

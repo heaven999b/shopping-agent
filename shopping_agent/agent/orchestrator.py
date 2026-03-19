@@ -36,6 +36,8 @@ from shopping_agent.common.types import (
     CandidatePlan,
     FeedbackRecord,
     FeedbackSignal,
+    PlanArtifact,
+    PlanWorkspace,
 )
 from shopping_agent.interaction.clarification import ClarificationPolicy
 from shopping_agent.interaction.intent_parser import IntentParser
@@ -525,6 +527,7 @@ class ShoppingAgentOrchestrator:
 
         # 选分数最高的方案作为主推
         state.selected_plan = max(valid_plans, key=lambda p: p.overall_score)
+        state.current_workspace = self._build_plan_workspace(state)
         state.record_attribution(
             module="VerificationPipeline",
             decision=f"通过校验: {len(valid_plans)}/{len(state.candidate_plans + reports)} 套方案",
@@ -622,4 +625,115 @@ class ShoppingAgentOrchestrator:
                     for item in state.selected_plan.items
                 ],
             }
+        if state.current_workspace:
+            result["workspace"] = self._serialize_workspace(state.current_workspace)
         return result
+
+    def _build_plan_workspace(self, state: AgentState) -> Optional[PlanWorkspace]:
+        if state.selected_plan is None or state.task is None:
+            return None
+
+        plan = state.selected_plan
+        profile = state.user_profile
+        growth_snapshot = {
+            "owned_items_count": len(profile.owned_items) if profile else 0,
+            "active_setup_keys": list(profile.active_setups.keys())[:3] if profile else [],
+            "upgrade_stage": profile.upgrade_stage if profile else {},
+            "purchase_rhythm": profile.purchase_rhythm if profile else {},
+        }
+        bundle_summary = {
+            "bundle_type": plan.bundle_type,
+            "objective": plan.bundle_objective,
+            "net_price": round(plan.net_price, 2),
+            "overall_score": round(plan.overall_score, 3),
+            "budget_allocation": plan.budget_allocation,
+            "items": [
+                {
+                    "slot": item.bundle_slot,
+                    "product": item.product.title,
+                    "price": item.product.final_price,
+                    "reason": item.reason,
+                    "persona_reason": item.persona_reason,
+                }
+                for item in plan.items
+            ],
+        }
+        phase_plan = {
+            "options": plan.phased_purchase_options,
+            "phased_purchase_score": round(plan.phased_purchase_score, 3),
+            "long_term_fit_score": round(plan.long_term_fit_score, 3),
+        }
+        tradeoff = {
+            "notes": [
+                {
+                    "dimension": note.dimension,
+                    "severity": note.severity,
+                    "note": note.note,
+                }
+                for note in plan.tradeoff_notes
+            ],
+            "style_coherence_score": round(plan.style_coherence_score, 3),
+            "bundle_completeness_score": round(plan.bundle_completeness_score, 3),
+        }
+
+        title = plan.bundle_objective or f"{'、'.join(state.task.categories)} 计划"
+        return PlanWorkspace(
+            workspace_id=f"ws_{state.session_id}",
+            title=title,
+            status="active",
+            objective=plan.bundle_objective,
+            lifecycle_stage="bundle_recommendation" if len(state.task.categories) > 1 else "single_recommendation",
+            artifacts=[
+                PlanArtifact(
+                    artifact_id=f"{plan.plan_id}_snapshot",
+                    artifact_type="growth_snapshot",
+                    title="User Growth Snapshot",
+                    summary="长期状态与升级位置概览",
+                    content=growth_snapshot,
+                ),
+                PlanArtifact(
+                    artifact_id=f"{plan.plan_id}_bundle",
+                    artifact_type="bundle_recommendation",
+                    title="Bundle Recommendation",
+                    summary=plan.persona_summary or (
+                        plan.explanation.splitlines()[0] if plan.explanation else "当前主推组合方案"
+                    ),
+                    content=bundle_summary,
+                ),
+                PlanArtifact(
+                    artifact_id=f"{plan.plan_id}_phases",
+                    artifact_type="phase_plan",
+                    title="Phase Plan",
+                    summary="一步到位 / 分阶段 / 保守路线",
+                    content=phase_plan,
+                ),
+                PlanArtifact(
+                    artifact_id=f"{plan.plan_id}_tradeoff",
+                    artifact_type="tradeoff_notes",
+                    title="Trade-off Notes",
+                    summary="预算压力、风格一致性与长期适配提示",
+                    content=tradeoff,
+                ),
+            ],
+        )
+
+    @staticmethod
+    def _serialize_workspace(workspace: PlanWorkspace) -> dict:
+        return {
+            "workspace_id": workspace.workspace_id,
+            "title": workspace.title,
+            "status": workspace.status,
+            "objective": workspace.objective,
+            "lifecycle_stage": workspace.lifecycle_stage,
+            "updated_at": workspace.updated_at.isoformat(),
+            "artifacts": [
+                {
+                    "artifact_id": artifact.artifact_id,
+                    "artifact_type": artifact.artifact_type,
+                    "title": artifact.title,
+                    "summary": artifact.summary,
+                    "content": artifact.content,
+                }
+                for artifact in workspace.artifacts
+            ],
+        }

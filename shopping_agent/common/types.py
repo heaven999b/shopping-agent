@@ -320,17 +320,21 @@ class CandidatePlan:
     style_coherence_score: float = 0.0
     scenario_fit_score: float = 0.0
     bundle_completeness_score: float = 0.0
+    long_term_fit_score: float = 0.0
+    phased_purchase_score: float = 0.0
 
     @property
     def overall_score(self) -> float:
         return (
-            self.constraint_score * 0.32
-            + self.preference_score * 0.18
-            + self.value_score * 0.12
+            self.constraint_score * 0.27
+            + self.preference_score * 0.15
+            + self.value_score * 0.1
             + self.persona_alignment_score * 0.14
-            + self.style_coherence_score * 0.1
+            + self.style_coherence_score * 0.09
             + self.scenario_fit_score * 0.08
             + self.bundle_completeness_score * 0.06
+            + self.long_term_fit_score * 0.06
+            + self.phased_purchase_score * 0.05
         )
 
     # 方案说明
@@ -347,6 +351,26 @@ class CandidatePlan:
     verification_issues: list[str] = field(default_factory=list)
 
     created_at: datetime = field(default_factory=datetime.now)
+
+
+@dataclass
+class PlanArtifact:
+    artifact_id: str
+    artifact_type: str              # snapshot | bundle_recommendation | phase_plan | tradeoff
+    title: str
+    summary: str = ""
+    content: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class PlanWorkspace:
+    workspace_id: str
+    title: str
+    status: str = "draft"           # draft | active | accepted | completed | archived
+    objective: str = ""
+    lifecycle_stage: str = "current_recommendation"
+    updated_at: datetime = field(default_factory=datetime.now)
+    artifacts: list[PlanArtifact] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------

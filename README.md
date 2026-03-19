@@ -156,6 +156,10 @@ pytest
 - 执行就绪分 `avg_execution_readiness_score`
 - 方案画像匹配均值 `avg_plan_persona_alignment_score`
 - 单品画像理由覆盖率 `avg_persona_reason_coverage`
+- 风格统一分 `avg_style_coherence_score`
+- 组合完整度 `avg_bundle_completeness_score`
+- 长期适配分 `avg_long_term_fit_score`
+- 分阶段购买分 `avg_phased_purchase_score`
 - drift 检测率 `drift_detection_rate`
 - drift 对齐分 `avg_drift_alignment_score`
 - 失败桶分布 `failure_bucket_breakdown`
@@ -178,6 +182,7 @@ benchmark 导出报告现在带固定 schema：
 - `report_sections.per_task_results`
 
 任务如果未显式声明 `task_family`，系统会按 `clarification_heavy`、`bundle`、`constraint_dense`、`drift`、`comparison`、`general` 自动归类。
+默认 benchmark 任务集中现在也包含长期升级与分阶段购买样例，例如 `upgrade_path` 和 `phased_purchase`。
 
 ### 用户记忆
 
@@ -196,6 +201,7 @@ benchmark 导出报告现在带固定 schema：
 - 解释器会在详细说明里展示“为什么这套方案更贴近当前用户画像”，而不只给价格和评分。
 - 对多品类任务，规划器会输出组合级字段：`bundle_type`、`bundle_objective`、`budget_allocation`、`style_coherence_score`、`scenario_fit_score`、`bundle_completeness_score`。
 - 当前还支持最小版 phased purchase：方案里会附带“一步到位 / 分阶段升级 / 保守路线”三类购买路径建议。
+- orchestrator 响应现在还会返回 `workspace`，其中按 artifact 组织为 `growth_snapshot`、`bundle_recommendation`、`phase_plan`、`tradeoff_notes`，便于前端做卡片式计划视图。
 
 ### Drift-aware 澄清
 

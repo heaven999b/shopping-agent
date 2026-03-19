@@ -35,11 +35,21 @@ def make_result(
     intent_resolution_score: float = 1.0,
     execution_readiness_score: float = 1.0,
     phase_coverage_score: float = 1.0,
+    plan_persona_alignment_score: float = 0.0,
+    persona_reason_coverage: float = 0.0,
+    style_coherence_score: float = 0.0,
+    bundle_completeness_score: float = 0.0,
+    long_term_fit_score: float = 0.0,
+    phased_purchase_score: float = 0.0,
+    drift_expected: bool = False,
+    drift_detected: bool = False,
+    drift_alignment_score: float = 0.0,
     failure_bucket: str | None = None,
 ) -> TaskResult:
     return TaskResult(
         task_id=task_id,
         query="test query",
+        task_family="general",
         success=success,
         has_result=has_result,
         budget_satisfied=budget_satisfied,
@@ -57,6 +67,15 @@ def make_result(
         intent_resolution_score=intent_resolution_score,
         execution_readiness_score=execution_readiness_score,
         phase_coverage_score=phase_coverage_score,
+        plan_persona_alignment_score=plan_persona_alignment_score,
+        persona_reason_coverage=persona_reason_coverage,
+        style_coherence_score=style_coherence_score,
+        bundle_completeness_score=bundle_completeness_score,
+        long_term_fit_score=long_term_fit_score,
+        phased_purchase_score=phased_purchase_score,
+        drift_expected=drift_expected,
+        drift_detected=drift_detected,
+        drift_alignment_score=drift_alignment_score,
         failure_bucket=failure_bucket,
     )
 
@@ -132,6 +151,15 @@ class TestMetricsComputer:
                 intent_resolution_score=0.9,
                 execution_readiness_score=0.7,
                 phase_coverage_score=0.8,
+                plan_persona_alignment_score=0.6,
+                persona_reason_coverage=1.0,
+                style_coherence_score=0.9,
+                bundle_completeness_score=1.0,
+                long_term_fit_score=0.8,
+                phased_purchase_score=0.7,
+                drift_expected=True,
+                drift_detected=True,
+                drift_alignment_score=1.0,
                 failure_bucket="success",
             ),
             make_result(
@@ -143,6 +171,15 @@ class TestMetricsComputer:
                 intent_resolution_score=0.4,
                 execution_readiness_score=0.8,
                 phase_coverage_score=0.6,
+                plan_persona_alignment_score=0.2,
+                persona_reason_coverage=0.5,
+                style_coherence_score=0.4,
+                bundle_completeness_score=0.6,
+                long_term_fit_score=0.5,
+                phased_purchase_score=0.4,
+                drift_expected=False,
+                drift_detected=False,
+                drift_alignment_score=1.0,
                 failure_bucket="clarification_failure",
             ),
         ]
@@ -152,4 +189,13 @@ class TestMetricsComputer:
         assert metrics["clarification_alignment_rate"] == pytest.approx(0.5, abs=1e-4)
         assert metrics["avg_intent_resolution_score"] == pytest.approx(0.65, abs=1e-4)
         assert metrics["avg_execution_readiness_score"] == pytest.approx(0.75, abs=1e-4)
+        assert metrics["avg_plan_persona_alignment_score"] == pytest.approx(0.4, abs=1e-4)
+        assert metrics["avg_persona_reason_coverage"] == pytest.approx(0.75, abs=1e-4)
+        assert metrics["avg_style_coherence_score"] == pytest.approx(0.65, abs=1e-4)
+        assert metrics["avg_bundle_completeness_score"] == pytest.approx(0.8, abs=1e-4)
+        assert metrics["avg_long_term_fit_score"] == pytest.approx(0.65, abs=1e-4)
+        assert metrics["avg_phased_purchase_score"] == pytest.approx(0.55, abs=1e-4)
+        assert metrics["drift_detection_rate"] == pytest.approx(0.5, abs=1e-4)
+        assert metrics["avg_drift_alignment_score"] == pytest.approx(1.0, abs=1e-4)
         assert metrics["failure_bucket_breakdown"]["clarification_failure"] == 1
+        assert metrics["task_family_summary"]["general"]["num_tasks"] == 2

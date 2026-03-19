@@ -15,6 +15,7 @@ from shopping_agent.common.types import (
     CandidatePlan,
     ClarificationQuestion,
     FeedbackRecord,
+    PlanWorkspace,
     Product,
     ShoppingTask,
     UserProfile,
@@ -103,6 +104,7 @@ class AgentState:
     # 规划结果
     candidate_plans: list[CandidatePlan] = field(default_factory=list)
     selected_plan: Optional[CandidatePlan] = None
+    current_workspace: Optional[PlanWorkspace] = None
 
     # 校验结果
     verification_reports: list[VerificationReport] = field(default_factory=list)

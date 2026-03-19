@@ -55,6 +55,7 @@ class TaskResult:
     verifier_skipped: bool = False     # 消融实验中跳过了 verifier
 
     # 诊断指标
+    task_family: str = "general"
     parser_category_match: float = 0.0
     plan_category_match: float = 0.0
     clarification_expected: bool = False
@@ -64,6 +65,15 @@ class TaskResult:
     intent_resolution_score: float = 0.0
     execution_readiness_score: float = 0.0
     phase_coverage_score: float = 0.0
+    plan_persona_alignment_score: float = 0.0
+    persona_reason_coverage: float = 0.0
+    style_coherence_score: float = 0.0
+    bundle_completeness_score: float = 0.0
+    long_term_fit_score: float = 0.0
+    phased_purchase_score: float = 0.0
+    drift_expected: bool = False
+    drift_detected: bool = False
+    drift_alignment_score: float = 0.0
     ended_in_error: bool = False
     error_type: Optional[str] = None
     failure_bucket: Optional[str] = None
@@ -90,6 +100,7 @@ class TaskResult:
             "plan_score_variance": round(self.plan_score_variance, 4),
             "graph_recovery_used": self.graph_recovery_used,
             "parser_category_match": round(self.parser_category_match, 3),
+            "task_family": self.task_family,
             "plan_category_match": round(self.plan_category_match, 3),
             "clarification_expected": self.clarification_expected,
             "clarification_alignment": round(self.clarification_alignment, 3),
@@ -98,6 +109,15 @@ class TaskResult:
             "intent_resolution_score": round(self.intent_resolution_score, 3),
             "execution_readiness_score": round(self.execution_readiness_score, 3),
             "phase_coverage_score": round(self.phase_coverage_score, 3),
+            "plan_persona_alignment_score": round(self.plan_persona_alignment_score, 3),
+            "persona_reason_coverage": round(self.persona_reason_coverage, 3),
+            "style_coherence_score": round(self.style_coherence_score, 3),
+            "bundle_completeness_score": round(self.bundle_completeness_score, 3),
+            "long_term_fit_score": round(self.long_term_fit_score, 3),
+            "phased_purchase_score": round(self.phased_purchase_score, 3),
+            "drift_expected": self.drift_expected,
+            "drift_detected": self.drift_detected,
+            "drift_alignment_score": round(self.drift_alignment_score, 3),
             "ended_in_error": self.ended_in_error,
             "error_type": self.error_type,
             "failure_bucket": self.failure_bucket,
@@ -138,6 +158,14 @@ class MetricsComputer:
         avg_intent_resolution = sum(r.intent_resolution_score for r in results) / n
         avg_execution_readiness = sum(r.execution_readiness_score for r in results) / n
         avg_phase_coverage = sum(r.phase_coverage_score for r in results) / n
+        avg_plan_persona_alignment = sum(r.plan_persona_alignment_score for r in results) / n
+        avg_persona_reason_coverage = sum(r.persona_reason_coverage for r in results) / n
+        avg_style_coherence = sum(r.style_coherence_score for r in results) / n
+        avg_bundle_completeness = sum(r.bundle_completeness_score for r in results) / n
+        avg_long_term_fit = sum(r.long_term_fit_score for r in results) / n
+        avg_phased_purchase = sum(r.phased_purchase_score for r in results) / n
+        drift_detection_rate = sum(1 for r in results if r.drift_detected) / n
+        avg_drift_alignment = sum(r.drift_alignment_score for r in results) / n
 
         # 预算利用率（仅计算有结果的任务）
         results_with_result = [r for r in results if r.has_result]
@@ -160,6 +188,7 @@ class MetricsComputer:
         ended_in_error_rate = sum(1 for r in results if r.ended_in_error) / n
         error_type_breakdown: dict[str, int] = {}
         failure_bucket_breakdown: dict[str, int] = {}
+        task_family_summary: dict[str, dict[str, Any]] = {}
         for r in results:
             if r.error_type:
                 error_type_breakdown[r.error_type] = error_type_breakdown.get(r.error_type, 0) + 1
@@ -167,6 +196,46 @@ class MetricsComputer:
                 failure_bucket_breakdown[r.failure_bucket] = (
                     failure_bucket_breakdown.get(r.failure_bucket, 0) + 1
                 )
+            family_bucket = task_family_summary.setdefault(
+                r.task_family,
+                {
+                    "num_tasks": 0,
+                    "successes": 0,
+                    "coverage_hits": 0,
+                    "avg_overall_score_total": 0.0,
+                    "avg_drift_alignment_total": 0.0,
+                    "avg_bundle_completeness_total": 0.0,
+                    "avg_long_term_fit_total": 0.0,
+                },
+            )
+            family_bucket["num_tasks"] += 1
+            family_bucket["successes"] += int(r.success)
+            family_bucket["coverage_hits"] += int(r.has_result)
+            family_bucket["avg_overall_score_total"] += r.overall_score
+            family_bucket["avg_drift_alignment_total"] += r.drift_alignment_score
+            family_bucket["avg_bundle_completeness_total"] += r.bundle_completeness_score
+            family_bucket["avg_long_term_fit_total"] += r.long_term_fit_score
+
+        for family, bucket in task_family_summary.items():
+            count = max(1, bucket["num_tasks"])
+            bucket["success_rate"] = round(bucket["successes"] / count, 4)
+            bucket["coverage"] = round(bucket["coverage_hits"] / count, 4)
+            bucket["avg_overall_score"] = round(bucket["avg_overall_score_total"] / count, 4)
+            bucket["avg_drift_alignment_score"] = round(
+                bucket["avg_drift_alignment_total"] / count, 4
+            )
+            bucket["avg_bundle_completeness_score"] = round(
+                bucket["avg_bundle_completeness_total"] / count, 4
+            )
+            bucket["avg_long_term_fit_score"] = round(
+                bucket["avg_long_term_fit_total"] / count, 4
+            )
+            del bucket["successes"]
+            del bucket["coverage_hits"]
+            del bucket["avg_overall_score_total"]
+            del bucket["avg_drift_alignment_total"]
+            del bucket["avg_bundle_completeness_total"]
+            del bucket["avg_long_term_fit_total"]
 
         return {
             # 基础统计
@@ -186,6 +255,14 @@ class MetricsComputer:
             "avg_intent_resolution_score": round(avg_intent_resolution, 4),
             "avg_execution_readiness_score": round(avg_execution_readiness, 4),
             "avg_phase_coverage_score": round(avg_phase_coverage, 4),
+            "avg_plan_persona_alignment_score": round(avg_plan_persona_alignment, 4),
+            "avg_persona_reason_coverage": round(avg_persona_reason_coverage, 4),
+            "avg_style_coherence_score": round(avg_style_coherence, 4),
+            "avg_bundle_completeness_score": round(avg_bundle_completeness, 4),
+            "avg_long_term_fit_score": round(avg_long_term_fit, 4),
+            "avg_phased_purchase_score": round(avg_phased_purchase, 4),
+            "drift_detection_rate": round(drift_detection_rate, 4),
+            "avg_drift_alignment_score": round(avg_drift_alignment, 4),
             # 方案质量
             "avg_plan_diversity": round(avg_plan_diversity, 4),
             # 过程指标
@@ -200,6 +277,7 @@ class MetricsComputer:
             "ended_in_error_rate": round(ended_in_error_rate, 4),
             "error_type_breakdown": error_type_breakdown,
             "failure_bucket_breakdown": failure_bucket_breakdown,
+            "task_family_summary": task_family_summary,
             "errors": errors[:5],  # 最多显示 5 个错误
         }
 
@@ -221,6 +299,10 @@ class MetricsComputer:
             "avg_parser_category_match", "avg_plan_category_match",
             "clarification_alignment_rate", "feasibility_alignment_rate",
             "avg_intent_resolution_score", "avg_execution_readiness_score",
+            "avg_plan_persona_alignment_score", "avg_persona_reason_coverage",
+            "avg_style_coherence_score", "avg_bundle_completeness_score",
+            "avg_long_term_fit_score", "avg_phased_purchase_score",
+            "drift_detection_rate", "avg_drift_alignment_score",
         ]
         comparison = {}
         for key in metric_keys:

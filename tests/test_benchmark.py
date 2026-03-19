@@ -37,6 +37,8 @@ class TestBenchmarkRunnerModes:
 
         assert report["benchmark_mode"] == "pipeline"
         assert report["num_tasks"] == 1
+        assert report["report_schema_version"] == "v2"
+        assert "report_sections" in report
 
     def test_e2e_mode_handles_clarification_task(self, tmp_path):
         tasks = [
@@ -75,4 +77,119 @@ class TestBenchmarkRunnerModes:
         assert "avg_parser_category_match" in report["metrics"]
         assert "clarification_alignment_rate" in report["metrics"]
         assert "avg_intent_resolution_score" in report["metrics"]
+        assert "avg_drift_alignment_score" in report["metrics"]
         assert report["per_task"][0]["failure_bucket"] == "success"
+
+    def test_benchmark_report_includes_drift_fields(self, tmp_path):
+        tasks = [
+            {
+                "task_id": "tb003",
+                "query": "帮我买一个耳机，预算2000",
+                "task_type": "single",
+                "categories": ["headset"],
+                "constraints": {
+                    "budget_total": {"value": 2000.0, "severity": "hard"},
+                },
+                "uncertainty_slots": {},
+                "expected": {
+                    "required_attrs": [],
+                    "drift_expected": False,
+                },
+            }
+        ]
+        tasks_path = tmp_path / "tasks_drift.json"
+        tasks_path.write_text(json.dumps(tasks, ensure_ascii=False), encoding="utf-8")
+
+        runner = BenchmarkRunner(
+            benchmark_mode="pipeline",
+            tasks_path=str(tasks_path),
+            output_dir=str(tmp_path / "logs"),
+        )
+        report = runner.run(verbose=False)
+
+        per_task = report["per_task"][0]
+        assert "drift_expected" in per_task
+        assert "drift_detected" in per_task
+        assert "drift_alignment_score" in per_task
+        assert "drift_detection_rate" in report["metrics"]
+
+    def test_benchmark_report_summarizes_task_family(self, tmp_path):
+        tasks = [
+            {
+                "task_id": "tb004",
+                "query": "想买个耳机",
+                "task_type": "single",
+                "categories": ["headset"],
+                "constraints": {},
+                "uncertainty_slots": {
+                    "budget_total": None,
+                    "usage_scenario": None,
+                },
+                "clarification_needed": True,
+                "expected": {"required_attrs": []},
+            }
+        ]
+        tasks_path = tmp_path / "tasks_family.json"
+        tasks_path.write_text(json.dumps(tasks, ensure_ascii=False), encoding="utf-8")
+
+        runner = BenchmarkRunner(
+            benchmark_mode="pipeline",
+            tasks_path=str(tasks_path),
+            output_dir=str(tmp_path / "logs"),
+        )
+        report = runner.run(verbose=False)
+
+        assert report["per_task"][0]["task_family"] == "clarification_heavy"
+        assert "clarification_heavy" in report["metrics"]["task_family_summary"]
+        assert "task_family_summary" in report["report_sections"]
+
+    def test_benchmark_report_includes_bundle_and_long_term_metrics(self, tmp_path):
+        tasks = [
+            {
+                "task_id": "tb005",
+                "query": "帮我补一套办公桌搭，已经有键盘了，还差显示器和耳机，预算5000",
+                "task_type": "bundle",
+                "task_family": "upgrade_path",
+                "categories": ["monitor", "headset"],
+                "constraints": {
+                    "budget_total": {"value": 5000.0, "severity": "hard"},
+                },
+                "user_profile_overrides": {
+                    "owned_items": [
+                        {"product_id": "owned_keyboard", "category": "keyboard", "brand": "Logitech"}
+                    ],
+                    "active_setups": {
+                        "monitor_setup": {
+                            "owned": ["owned_keyboard"],
+                            "missing": ["monitor_arm"],
+                            "style": "clean",
+                            "next_best_upgrade": "monitor_arm"
+                        }
+                    },
+                    "upgrade_stage": {"monitor_setup": "growing"},
+                    "purchase_rhythm": {"avg_spend": 1200.0, "purchase_count": 3, "cadence": "incremental"}
+                },
+                "uncertainty_slots": {},
+                "expected": {
+                    "required_attrs": [],
+                    "gold_categories": ["monitor", "headset"]
+                },
+            }
+        ]
+        tasks_path = tmp_path / "tasks_bundle.json"
+        tasks_path.write_text(json.dumps(tasks, ensure_ascii=False), encoding="utf-8")
+
+        runner = BenchmarkRunner(
+            benchmark_mode="pipeline",
+            tasks_path=str(tasks_path),
+            output_dir=str(tmp_path / "logs"),
+        )
+        report = runner.run(verbose=False)
+
+        per_task = report["per_task"][0]
+        assert per_task["task_family"] == "upgrade_path"
+        assert "avg_style_coherence_score" in report["metrics"]
+        assert "avg_bundle_completeness_score" in report["metrics"]
+        assert "avg_long_term_fit_score" in report["metrics"]
+        assert "avg_phased_purchase_score" in report["metrics"]
+        assert report["metrics"]["task_family_summary"]["upgrade_path"]["num_tasks"] == 1
