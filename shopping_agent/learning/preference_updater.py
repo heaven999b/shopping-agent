@@ -21,8 +21,8 @@ from shopping_agent.memory.preference_memory import PreferenceMemory
 
 
 class PreferenceUpdater:
-    def __init__(self):
-        self._memory = PreferenceMemory()
+    def __init__(self, memory: PreferenceMemory | None = None):
+        self._memory = memory or PreferenceMemory()
 
     def update(self, user_id: str, record: FeedbackRecord) -> None:
         """根据反馈信号更新用户画像。"""
@@ -70,4 +70,4 @@ class PreferenceUpdater:
         if old_budget and new_budget and new_budget > old_budget:
             profile.price_sensitivity = max(0.0, profile.price_sensitivity - 0.05)
 
-        self._memory._profiles[user_id] = profile
+        self._memory.save(profile)

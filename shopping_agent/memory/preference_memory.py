@@ -12,16 +12,17 @@ PreferenceMemory — 用户偏好记忆层。
 
 from __future__ import annotations
 
+import copy
 from datetime import datetime
 from typing import Optional
 
 from shopping_agent.common.types import ShoppingTask, UserProfile
+from shopping_agent.storage.profile_store import ProfileStore
 
 
 class PreferenceMemory:
-    def __init__(self):
-        # stub 存储，生产环境替换为 DB/Redis
-        self._profiles: dict[str, UserProfile] = {}
+    def __init__(self, profile_store: Optional[ProfileStore] = None):
+        self._store = profile_store or ProfileStore()
         self._implicit_signals: dict[str, list[dict]] = {}
 
     def load(self, user_id: str,
@@ -30,16 +31,17 @@ class PreferenceMemory:
         加载用户画像。
         若用户无历史记录，返回空白画像（冷启动）。
         """
-        profile = self._profiles.get(user_id)
-        if profile is None:
-            profile = UserProfile(user_id=user_id)
-            self._profiles[user_id] = profile
+        profile = self._store.load(user_id)
 
         # 根据当前任务场景做上下文感知的偏好加权
         if task:
             profile = self._contextualize(profile, task)
 
         return profile
+
+    def save(self, profile: UserProfile) -> None:
+        """持久化用户画像。"""
+        self._store.save(profile)
 
     def update_explicit(
         self,
@@ -78,7 +80,7 @@ class PreferenceMemory:
                                             profile.price_sensitivity + 0.05)
 
         profile.last_updated = datetime.now()
-        self._profiles[user_id] = profile
+        self.save(profile)
 
     def update_implicit(
         self,
@@ -107,7 +109,6 @@ class PreferenceMemory:
         根据当前任务的隐式需求，临时调整画像权重。
         不修改原始画像，返回调整副本。
         """
-        import copy
         ctx_profile = copy.deepcopy(profile)
 
         # 出差场景：提高履约时效偏好

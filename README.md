@@ -80,7 +80,7 @@ data/
 ├── products.json       # 27 件示例商品（8 品类）
 └── tasks.json          # 10 条基准测试任务
 
-tests/                  # 63 个单元测试（pytest）
+tests/                  # 70 个单元测试（pytest）
 ```
 
 ---
@@ -102,6 +102,10 @@ python main.py chat --user-id user_001
 
 # 基准测试（启发式 vs RL 对比）
 python main.py benchmark --compare
+
+# Benchmark 脚本
+python run_benchmark.py --mode pipeline   # 模块级 benchmark
+python run_benchmark.py --mode e2e        # 端到端 benchmark（走公开入口）
 
 # RL 行为克隆预训练（冷启动）
 python main.py train --pretrain --synthetic
@@ -132,7 +136,14 @@ pip install -r requirements-dev.txt
 pytest
 ```
 
-当前仓库包含 `63` 个 pytest 单元测试，并通过 GitHub Actions 在多 Python 版本下执行。
+当前仓库包含 `70` 个 pytest 单元测试，并通过 GitHub Actions 在多 Python 版本下执行。
+
+### Benchmark 模式
+
+- `pipeline`
+  直接评估检索、规划、校验链路，适合做模块消融和稳定对比。
+- `e2e`
+  通过 `ShoppingAgentOrchestrator.run()/continue_session()` 驱动任务，包含意图解析和自动澄清回合，更接近真实 agent 行为。
 
 ### 示例交互
 

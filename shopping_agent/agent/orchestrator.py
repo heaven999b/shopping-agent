@@ -84,7 +84,7 @@ class ShoppingAgentOrchestrator:
         self.verifier = VerificationPipeline()
         self.explainer = Explainer()
         self.behavior_logger = behavior_logger or BehaviorLogger()
-        self.preference_updater = PreferenceUpdater()
+        self.preference_updater = PreferenceUpdater(memory=self.preference_memory)
         self.constraint_relaxer = ConstraintRelaxer()
         self.session_store = session_store or SessionStore()
 

@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import re
 import uuid
+import copy
 from datetime import datetime
 from typing import Optional
 
@@ -409,8 +410,10 @@ class IntentParser:
             data, _ = self._validator.validate(data)
             return self._apply_revision(existing_task, data, user_input)
         except Exception:
-            # 修正解析失败：退回全新解析
-            return self.parse(user_input, None)
+            # 修正解析失败：退回规则式增量修正，而不是丢失原任务上下文
+            return self._fallback_revision(
+                user_input, existing_task, conversation_history
+            )
 
     # ---------------------------------------------------------------------------
     # 内部方法
@@ -551,3 +554,116 @@ class IntentParser:
         )
         task.apply_revision(revision)
         return task
+
+    def _fallback_revision(
+        self,
+        user_input: str,
+        existing_task: ShoppingTask,
+        conversation_history: list[ConversationTurn],
+    ) -> ShoppingTask:
+        task = copy.deepcopy(existing_task)
+        parsed = self._fallback.parse(user_input)
+        asked_slot = self._infer_last_clarification_slot(conversation_history)
+        changed_fields: dict[str, dict] = {}
+
+        hard_updates = parsed.get("hard_constraints", {})
+        soft_updates = parsed.get("soft_preferences", {})
+
+        if parsed.get("categories"):
+            before = task.categories.copy()
+            task.categories = parsed["categories"]
+            changed_fields["categories"] = {"from": before, "to": task.categories}
+
+        for key, value in hard_updates.items():
+            if value is None:
+                continue
+            before = task.get_hard_constraints().get(key)
+            self._upsert_constraint(task, key, value, ConstraintSeverity.HARD)
+            changed_fields[key] = {"from": before, "to": value}
+
+        for key, value in soft_updates.items():
+            if value in (None, [], ""):
+                continue
+            before = task.get_soft_preferences().get(key)
+            self._upsert_constraint(task, key, value, ConstraintSeverity.SOFT)
+            changed_fields[key] = {"from": before, "to": value}
+
+        implicit_needs = parsed.get("implicit_needs", [])
+        if implicit_needs:
+            merged = list(dict.fromkeys(task.implicit_needs + implicit_needs))
+            if merged != task.implicit_needs:
+                changed_fields["implicit_needs"] = {
+                    "from": task.implicit_needs.copy(),
+                    "to": merged,
+                }
+                task.implicit_needs = merged
+
+        if asked_slot:
+            if asked_slot == "categories" and task.categories:
+                task.uncertainty_slots.pop("categories", None)
+            elif asked_slot in {"budget_total", "delivery_days"} and asked_slot in hard_updates:
+                task.uncertainty_slots.pop(asked_slot, None)
+            elif asked_slot in {"brand_preference", "platform", "style", "color"} and asked_slot in soft_updates:
+                task.uncertainty_slots.pop(asked_slot, None)
+            elif user_input.strip():
+                task.uncertainty_slots.pop(asked_slot, None)
+
+        task.uncertainty_score = min(
+            1.0,
+            len(task.uncertainty_slots) * 0.3,
+        )
+
+        revision = TaskRevision(
+            round_index=len(task.revision_history),
+            changed_fields=changed_fields,
+            user_utterance=user_input,
+            timestamp=datetime.now(),
+        )
+        task.apply_revision(revision)
+        return task
+
+    @staticmethod
+    def _upsert_constraint(
+        task: ShoppingTask,
+        key: str,
+        value,
+        severity: ConstraintSeverity,
+    ) -> None:
+        existing = next((c for c in task.constraints if c.key == key), None)
+        if existing:
+            existing.value = value
+            existing.severity = severity
+        else:
+            task.constraints.append(
+                Constraint(key=key, value=value, severity=severity, source="user")
+            )
+
+    @staticmethod
+    def _infer_last_clarification_slot(
+        conversation_history: list[ConversationTurn],
+    ) -> Optional[str]:
+        if not conversation_history:
+            return None
+
+        last_response = conversation_history[-1].agent_response
+        if "预算" in last_response:
+            return "budget_total"
+        if "几天内" in last_response or "次日达" in last_response:
+            return "delivery_days"
+        if "什么场景" in last_response:
+            return "usage_scenario"
+        if "品牌偏好" in last_response:
+            return "brand_preference"
+        if "平台" in last_response:
+            return "platform"
+        if "风格" in last_response:
+            return "style"
+        if "颜色" in last_response:
+            return "color"
+        if "尺寸" in last_response or "尺码" in last_response:
+            return "size"
+        if "兼容" in last_response:
+            return "compatibility"
+        if "买什么" in last_response or "哪些品类" in last_response:
+            return "categories"
+        return None

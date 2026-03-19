@@ -19,12 +19,12 @@ from __future__ import annotations
 
 import json
 import time
-import traceback
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
 from shopping_agent.agent.orchestrator import ShoppingAgentOrchestrator
+from shopping_agent.agent.state import WorkflowStep
 from shopping_agent.common.types import (
     Constraint,
     ConstraintSeverity,
@@ -100,6 +100,7 @@ class BenchmarkRunner:
         user_id: str = "benchmark_user",
         tasks_path: Optional[str] = None,
         output_dir: str = "logs",
+        benchmark_mode: str = "pipeline",
         # ── 消融开关 ──
         disable_graph: bool = False,
         disable_verifier: bool = False,
@@ -112,6 +113,7 @@ class BenchmarkRunner:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self._metrics = MetricsComputer()
         self._use_rl = use_rl
+        self._benchmark_mode = benchmark_mode
         # 消融开关
         self._disable_graph = disable_graph
         self._disable_verifier = disable_verifier
@@ -143,6 +145,7 @@ class BenchmarkRunner:
             "run_id": str(uuid.uuid4())[:8],
             "timestamp": datetime.now().isoformat(),
             "mode": "rl" if self._use_rl else "heuristic",
+            "benchmark_mode": self._benchmark_mode,
             "num_tasks": len(results),
             "metrics": metrics,
             "per_task": [r.to_dict() for r in results],
@@ -155,6 +158,9 @@ class BenchmarkRunner:
 
     def _run_single_task(self, raw: dict, verbose: bool = True) -> TaskResult:
         """运行单个 benchmark 任务，返回 TaskResult。"""
+        if self._benchmark_mode == "e2e":
+            return self._run_single_task_e2e(raw, verbose=verbose)
+
         task_id = raw["task_id"]
         query = raw["query"]
         expected = raw.get("expected", {})
@@ -275,6 +281,177 @@ class BenchmarkRunner:
             )
 
         return result
+
+    def _run_single_task_e2e(self, raw: dict, verbose: bool = True) -> TaskResult:
+        task_id = raw["task_id"]
+        query = raw["query"]
+        expected = raw.get("expected", {})
+        budget = raw.get("constraints", {}).get("budget_total", {}).get("value")
+
+        result = TaskResult(task_id=task_id, query=query)
+        t_start = time.time()
+
+        try:
+            response = self.orchestrator.run(user_id=self.user_id, user_input=query)
+            session_id = response["session_id"]
+            clarification_turns = 0
+
+            while response.get("needs_input") and not self._disable_clarification:
+                state = self.orchestrator._sessions.get(session_id)
+                question = state.pending_clarifications[0] if state and state.pending_clarifications else None
+                answer = self._answer_clarification(raw, question.slot if question else None)
+                clarification_turns += 1
+                response = self.orchestrator.continue_session(session_id, answer)
+
+            result.clarification_turns = clarification_turns
+
+            state = self.orchestrator._sessions.get(session_id)
+            if state is None:
+                raise RuntimeError(f"Benchmark session not found: {session_id}")
+
+            result = self._populate_result_from_state(
+                result=result,
+                state=state,
+                expected=expected,
+                budget=budget,
+            )
+
+            if response.get("needs_input") and self._disable_clarification:
+                result.error = "clarification_disabled"
+                result.success = False
+
+        except Exception as e:
+            result.error = f"{type(e).__name__}: {str(e)}"
+            result.success = False
+            if verbose:
+                print(f"  [ERROR] {task_id}: {result.error}")
+
+        result.latency_ms = (time.time() - t_start) * 1000
+
+        if verbose:
+            status = "✓" if result.success else "✗"
+            budget_str = f"¥{result.budget_ratio * (budget or 0):.0f}/{budget}" if budget else "N/A"
+            recovery_tag = " [graph-repair]" if result.graph_recovery_used else ""
+            print(
+                f"  [{status}] {task_id} | turns={result.clarification_turns} "
+                f"| score={result.overall_score:.3f} | budget={budget_str} "
+                f"| plans={result.num_plans} | diversity={result.plan_diversity:.3f}"
+                f"| {result.latency_ms:.0f}ms{recovery_tag}"
+            )
+
+        return result
+
+    def _populate_result_from_state(
+        self,
+        result: TaskResult,
+        state,
+        expected: dict,
+        budget: Optional[float],
+    ) -> TaskResult:
+        result.has_result = state.selected_plan is not None
+        result.num_plans = len(state.candidate_plans)
+
+        if state.selected_plan:
+            total = state.selected_plan.total_price
+            result.overall_score = state.selected_plan.overall_score
+            result.budget_satisfied = (budget is None or total <= budget * 1.05)
+            result.budget_ratio = (total / budget) if budget else 0.0
+
+            plan_items_with_attrs = []
+            for item in state.selected_plan.items:
+                plan_items_with_attrs.append({
+                    "slot": item.bundle_slot,
+                    "product_id": item.product.product_id,
+                    "price": item.product.final_price,
+                    "attributes": {a.name: a.value for a in item.product.attributes},
+                })
+            result.plan_items = plan_items_with_attrs
+
+            required_attrs = expected.get("required_attrs", [])
+            result.constraint_hit_rate = _check_required_attrs(
+                plan_items_with_attrs, required_attrs
+            )
+
+            all_plans = state.candidate_plans
+            if len(all_plans) >= 2:
+                prices = [p.total_price for p in all_plans]
+                mean_price = sum(prices) / len(prices)
+                if mean_price > 0:
+                    import math
+                    variance = sum((p - mean_price) ** 2 for p in prices) / len(prices)
+                    result.plan_diversity = math.sqrt(variance) / mean_price
+
+                scores = [p.overall_score for p in all_plans]
+                score_mean = sum(scores) / len(scores)
+                result.plan_score_variance = sum(
+                    (s - score_mean) ** 2 for s in scores
+                ) / len(scores)
+
+            result.graph_recovery_used = any(
+                "图修复" in attr.decision or "GraphBased" in attr.module
+                for attr in state.attribution_trace
+            )
+            result.success = result.has_result and result.budget_satisfied
+        else:
+            result.success = False
+            if state.current_step == WorkflowStep.ERROR and state.errors:
+                last_error = state.errors[-1]
+                result.error = f"{last_error['error_type']}: {last_error['message']}"
+
+        return result
+
+    def _answer_clarification(self, raw: dict, slot: Optional[str]) -> str:
+        constraints = raw.get("constraints", {})
+        expected = raw.get("expected", {})
+
+        if slot == "budget_total":
+            if "budget_total" in constraints:
+                return str(constraints["budget_total"]["value"])
+            upper = expected.get("acceptable_budget_range", [0, 3000])[1]
+            return str(int(upper if upper < 99999 else 3000))
+
+        if slot == "delivery_days":
+            if "delivery_days" in constraints:
+                return f"{constraints['delivery_days']['value']}天内"
+            return "3天内"
+
+        if slot == "categories":
+            categories = raw.get("categories") or expected.get("gold_categories") or ["headset"]
+            return "、".join(categories)
+
+        if slot == "usage_scenario":
+            query = raw.get("query", "")
+            if "办公" in query or "工作" in query:
+                return "办公"
+            if "游戏" in query:
+                return "游戏"
+            if "家庭" in query or "居家" in query:
+                return "居家"
+            return "居家"
+
+        if slot == "brand_preference":
+            brand = constraints.get("brand", {}).get("value")
+            return brand or "不限"
+
+        if slot == "platform":
+            return constraints.get("platform", {}).get("value", "京东")
+
+        if slot == "style":
+            return "简约"
+
+        if slot == "color":
+            return "黑色"
+
+        if slot == "size":
+            screen = constraints.get("screen_size_inch", {}).get("value")
+            if screen is not None:
+                return f"{screen}寸"
+            return "标准尺寸"
+
+        if slot == "compatibility":
+            return "Windows"
+
+        return "都可以"
 
     def save_report(self, report: dict[str, Any], filename: Optional[str] = None) -> Path:
         """保存评测报告为 JSON 文件。"""

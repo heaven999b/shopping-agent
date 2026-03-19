@@ -32,6 +32,12 @@ def main():
     parser.add_argument("--save", action="store_true", help="将报告保存到 logs/")
     parser.add_argument("--verbose", type=int, default=1, help="详细程度：0=只显示summary，1=逐任务（默认）")
     parser.add_argument("--output-dir", default="logs", help="报告保存目录")
+    parser.add_argument(
+        "--mode",
+        choices=["pipeline", "e2e"],
+        default="pipeline",
+        help="评测模式：pipeline=模块级，e2e=端到端公开入口",
+    )
     args = parser.parse_args()
 
     task_ids = args.tasks.split(",") if args.tasks else None
@@ -42,13 +48,21 @@ def main():
         print("=" * 60)
         print("  Running heuristic baseline...")
         print("=" * 60)
-        runner_h = BenchmarkRunner(use_rl=False, output_dir=args.output_dir)
+        runner_h = BenchmarkRunner(
+            use_rl=False,
+            output_dir=args.output_dir,
+            benchmark_mode=args.mode,
+        )
         report_h = runner_h.run(task_ids=task_ids, verbose=verbose)
 
         print("\n" + "=" * 60)
         print("  Running RL mode...")
         print("=" * 60)
-        runner_r = BenchmarkRunner(use_rl=True, output_dir=args.output_dir)
+        runner_r = BenchmarkRunner(
+            use_rl=True,
+            output_dir=args.output_dir,
+            benchmark_mode=args.mode,
+        )
         report_r = runner_r.run(task_ids=task_ids, verbose=verbose)
 
         comparison = runner_h.compare(report_h, report_r)
@@ -62,7 +76,11 @@ def main():
             print(f"\n对比报告已保存: {path}")
 
     else:
-        runner = BenchmarkRunner(use_rl=args.rl, output_dir=args.output_dir)
+        runner = BenchmarkRunner(
+            use_rl=args.rl,
+            output_dir=args.output_dir,
+            benchmark_mode=args.mode,
+        )
         report = runner.run(task_ids=task_ids, verbose=verbose)
 
         if args.save:
