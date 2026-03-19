@@ -365,9 +365,10 @@ class RLPlanningPolicy:
     PLAN_NUM_ACTIONS = 3
 
     def __init__(self, learning_rate: float = 1e-3):
+        # to_vector() 返回 6 维（归一化派生特征），与 dataclass 字段数 7 不同
+        _PLAN_FEATURE_DIM = 6
         self._policy = LinearSoftmaxPolicy(
-            feature_dim=PlanningState.__dataclass_fields__.__len__()
-            if hasattr(PlanningState, '__dataclass_fields__') else 6,
+            feature_dim=_PLAN_FEATURE_DIM,
             num_actions=self.PLAN_NUM_ACTIONS,
             learning_rate=learning_rate,
         )

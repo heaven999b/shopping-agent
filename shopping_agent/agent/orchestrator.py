@@ -225,7 +225,8 @@ class ShoppingAgentOrchestrator:
             state.add_turn(user_input, response_text)
             return self._build_response(state, response_text)
 
-        except (IntentParseError, NoProductFoundError, InfeasibleConstraintError) as e:
+        except (IntentParseError, NoProductFoundError,
+                InfeasibleConstraintError, VerificationError) as e:
             state.record_error("Orchestrator", e)
             state.transition(WorkflowStep.ERROR)
             error_msg = self._handle_graceful_error(state, e)

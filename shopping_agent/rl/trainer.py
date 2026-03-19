@@ -94,8 +94,8 @@ class RLTrainer:
         # ── Critics（线性价值函数）──
         # 特征维度与各策略的输入维度一致
         from shopping_agent.rl.policy import MAX_SLOTS
-        clar_feature_dim = MAX_SLOTS * 2 + 3 + 4   # 同 RLClarificationPolicy
-        plan_feature_dim = 7                         # 同 RLPlanningPolicy（PlanningState fields）
+        clar_feature_dim = MAX_SLOTS * 2 + 3 + 4   # 同 RLClarificationPolicy._pad_state_vector
+        plan_feature_dim = 6                         # 同 PlanningState.to_vector()
         self.clar_critic = LinearValueCritic(clar_feature_dim, learning_rate=critic_lr)
         self.plan_critic = LinearValueCritic(plan_feature_dim, learning_rate=critic_lr)
 
@@ -217,8 +217,7 @@ class RLTrainer:
                 # 不再澄清，进入规划
                 reward = ClarificationReward(turn_cost=0.0).total
                 ep.add_clarification_step(ClarificationTransition(
-                    state_vec=clar_state.to_vector() if hasattr(clar_state, 'to_vector')
-                    else self.clar_policy._pad_state_vector(clar_state),
+                    state_vec=self.clar_policy._pad_state_vector(clar_state),
                     action=action,
                     log_prob=log_prob,
                     reward=reward,
