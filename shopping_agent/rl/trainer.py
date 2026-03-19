@@ -1,20 +1,27 @@
 """
-RLTrainer — REINFORCE 训练器。
+RLTrainer — Actor-Critic 训练器（GAE + 线性 Critic）。
 
-训练两个策略：
-  - ClarificationPolicy: π_θ
-  - PlanningPolicy:      π_φ
+训练两个 Actor 策略 + 两个 Critic：
+  - ClarificationPolicy π_θ  +  ClarificationCritic V_θ
+  - PlanningPolicy      π_φ  +  PlanningCritic      V_φ
 
 训练流程（每次迭代）：
   1. 用 UserSimulator 采集 N 个 episode
-  2. 计算每个 episode 的折扣回报 G_t
-  3. 对所有 (s_t, a_t, G_t) 做 REINFORCE 梯度更新
-  4. 记录指标，保存检查点
+  2. 用 GAE 计算优势 A_t^GAE(γ,λ)（低方差版本的 advantage）
+  3. Actor 更新：∇_θ J = A_t · ∇_θ log π_θ(a_t|s_t)
+  4. Critic 更新：最小化 (V_θ(s_t) - G_t)^2（MC target）
+  5. 记录指标，保存检查点
+
+相比纯 REINFORCE 的改进：
+  - Critic 提供 state-dependent 基线，大幅降低梯度方差
+  - GAE λ 参数平衡偏差-方差权衡（λ=0.95 是 PPO 默认值）
+  - 同时输出 critic_loss 用于监控 value function 的拟合质量
 
 论文实验设计（建议的 Ablation）：
-  - Full model:          RL Clarification + RL Planning
+  - Full model:          RL Clarification + RL Planning (GAE)
   - Ablation A:          Heuristic Clarification + RL Planning
   - Ablation B:          RL Clarification + Heuristic Planning
+  - Ablation C:          REINFORCE（no critic）vs GAE（with critic）
   - Baseline:            Heuristic Clarification + Heuristic Planning
   - Upper bound:         Oracle（已知用户偏好，不需要澄清）
 """
@@ -49,9 +56,11 @@ from shopping_agent.rl.pomdp import (
 )
 from shopping_agent.rl.policy import (
     ALL_SLOTS,
+    LinearValueCritic,
     RLClarificationPolicy,
     RLPlanningPolicy,
 )
+from shopping_agent.rl.belief import BeliefState
 from shopping_agent.rl.user_simulator import (
     HiddenUserPreference,
     RuleBasedUserSimulator,
@@ -62,7 +71,7 @@ logger = logging.getLogger(__name__)
 
 class RLTrainer:
     """
-    REINFORCE 训练器。
+    Actor-Critic 训练器（GAE + 线性 Critic）。
 
     示例用法：
         trainer = RLTrainer(checkpoint_dir="./checkpoints")
@@ -74,14 +83,26 @@ class RLTrainer:
         self,
         clar_lr: float = 5e-4,
         plan_lr: float = 5e-4,
+        critic_lr: float = 1e-3,
         gamma: float = 0.99,
+        gae_lambda: float = 0.95,
         checkpoint_dir: str = "./checkpoints",
     ):
         self.clar_policy = RLClarificationPolicy(learning_rate=clar_lr)
         self.plan_policy = RLPlanningPolicy(learning_rate=plan_lr)
+
+        # ── Critics（线性价值函数）──
+        # 特征维度与各策略的输入维度一致
+        from shopping_agent.rl.policy import MAX_SLOTS
+        clar_feature_dim = MAX_SLOTS * 2 + 3 + 4   # 同 RLClarificationPolicy
+        plan_feature_dim = 7                         # 同 RLPlanningPolicy（PlanningState fields）
+        self.clar_critic = LinearValueCritic(clar_feature_dim, learning_rate=critic_lr)
+        self.plan_critic = LinearValueCritic(plan_feature_dim, learning_rate=critic_lr)
+
         self.simulator = RuleBasedUserSimulator(noise_level=0.1)
         self.buffer = EpisodeBuffer(capacity=512)
         self.gamma = gamma
+        self.gae_lambda = gae_lambda
         self.checkpoint_dir = Path(checkpoint_dir)
         self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
@@ -175,14 +196,21 @@ class RLTrainer:
             task_id=task.task_id,
         )
 
-        # ── Phase 1: Clarification ──
+        # ── Phase 1: Clarification（含 Bayesian Belief State）──
         from shopping_agent.common.constants import CLARIFICATION_MAX_ROUNDS
         user_dropped_out = False
 
-        for _round in range(CLARIFICATION_MAX_ROUNDS + 1):
-            clar_state = self._build_clar_state(task, _round)
+        # 初始化信念状态（均匀先验，对应 POMDP 的 b_0）
+        belief = BeliefState.create(slots=list(task.uncertainty_slots.keys()))
+        # 已知的槽位直接 mark（如用户在初始 query 中明确了预算）
+        for slot, val in task.uncertainty_slots.items():
+            if val is not None:
+                belief.mark_known(slot, val)
 
-            # 策略决策
+        for _round in range(CLARIFICATION_MAX_ROUNDS + 1):
+            clar_state = self._build_clar_state(task, _round, belief=belief)
+
+            # 策略决策（π 接收信念状态特征）
             action, log_prob = self.clar_policy.decide(clar_state, explore=explore)
 
             if action.action_type.value == "proceed":
@@ -211,9 +239,15 @@ class RLTrainer:
                 question, user_pref
             )
 
-            # 更新任务状态（填充槽位）
+            # ── Bayesian belief update ──
+            # b_{t+1}(p) ∝ P(obs=answer | preference=p) · b_t(p)
+            if action.slot:
+                belief.update(action.slot, answer, noise=0.1)
+
+            # 更新任务状态（填充槽位，同时 mark 信念为确定值）
             if action.slot in task.uncertainty_slots:
                 task.uncertainty_slots[action.slot] = answer
+                belief.mark_known(action.slot, answer)
 
             # 计算即时奖励
             unc_reduction = self._compute_uncertainty_reduction(task, action.slot)
@@ -261,33 +295,63 @@ class RLTrainer:
     # ---------------------------------------------------------------------------
 
     def _update_policies(self, episodes: list[Episode]) -> dict:
-        clar_losses = []
-        plan_losses = []
+        """
+        Actor-Critic 更新（GAE advantages + Critic MSE）。
+
+        对每个 episode：
+          1. 计算 GAE 优势 A_t 和 MC 回报 G_t
+          2. Actor 更新：∇_θ J = A_t · ∇_θ log π(a|s)（低方差）
+          3. Critic 更新：minimize (V(s_t) - G_t)^2
+        """
+        clar_actor_losses, clar_critic_losses = [], []
+        plan_actor_losses, plan_critic_losses = [], []
 
         for ep in episodes:
-            clar_returns, plan_returns = ep.compute_returns(self.gamma)
+            clar_adv, plan_adv, clar_ret, plan_ret = ep.compute_gae_advantages(
+                self.clar_critic, self.plan_critic,
+                gamma=self.gamma, lam=self.gae_lambda,
+            )
 
-            # 更新澄清策略
-            for t, (transition, G) in enumerate(
-                zip(ep.clarification_transitions, clar_returns)
+            # ── 澄清策略更新 ──
+            for transition, advantage, G in zip(
+                ep.clarification_transitions, clar_adv, clar_ret
             ):
-                state = self._vec_to_clar_state(transition.state_vec)
-                loss = self.clar_policy.update(state, transition.action, G)
-                clar_losses.append(loss)
+                sv = transition.state_vec
+                # Actor: REINFORCE with GAE advantage (replaces raw G_t)
+                state = self._vec_to_clar_state(sv)
+                actor_loss = self.clar_policy.update(state, transition.action, advantage)
+                clar_actor_losses.append(actor_loss)
 
-            # 更新规划策略
-            for transition, G in zip(ep.planning_transitions, plan_returns):
-                state = self._vec_to_plan_state(transition.state_vec)
-                loss = self.plan_policy.update(state, transition.action, G)
-                plan_losses.append(loss)
+                # Critic: fit V(s_t) → G_t
+                critic_loss = self.clar_critic.update(sv, G)
+                clar_critic_losses.append(critic_loss)
+
+            # ── 规划策略更新 ──
+            for transition, advantage, G in zip(
+                ep.planning_transitions, plan_adv, plan_ret
+            ):
+                sv = transition.state_vec
+                state = self._vec_to_plan_state(sv)
+                actor_loss = self.plan_policy.update(state, transition.action, advantage)
+                plan_actor_losses.append(actor_loss)
+
+                critic_loss = self.plan_critic.update(sv, G)
+                plan_critic_losses.append(critic_loss)
 
         success_rate = np.mean([float(ep.final_task_success) for ep in episodes])
         avg_turns = np.mean([ep.total_turns for ep in episodes])
         avg_score = np.mean([ep.final_plan_score for ep in episodes])
 
         return {
-            "clar_loss": float(np.mean(clar_losses)) if clar_losses else 0.0,
-            "plan_loss": float(np.mean(plan_losses)) if plan_losses else 0.0,
+            # Actor losses（使用 GAE advantage 而非原始 G_t）
+            "clar_actor_loss": float(np.mean(clar_actor_losses)) if clar_actor_losses else 0.0,
+            "plan_actor_loss": float(np.mean(plan_actor_losses)) if plan_actor_losses else 0.0,
+            # Critic MSE（监控 value function 的拟合质量）
+            "clar_critic_mse": float(np.mean(clar_critic_losses)) if clar_critic_losses else 0.0,
+            "plan_critic_mse": float(np.mean(plan_critic_losses)) if plan_critic_losses else 0.0,
+            # 兼容旧日志格式
+            "clar_loss": float(np.mean(clar_actor_losses)) if clar_actor_losses else 0.0,
+            "plan_loss": float(np.mean(plan_actor_losses)) if plan_actor_losses else 0.0,
             "success_rate": float(success_rate),
             "avg_turns": float(avg_turns),
             "avg_plan_score": float(avg_score),
@@ -327,6 +391,8 @@ class RLTrainer:
     def save_checkpoint(self, tag: str = "latest") -> None:
         self.clar_policy.save(str(self.checkpoint_dir / f"clar_policy_{tag}.pkl"))
         self.plan_policy.save(str(self.checkpoint_dir / f"plan_policy_{tag}.pkl"))
+        self.clar_critic.save(str(self.checkpoint_dir / f"clar_critic_{tag}.pkl"))
+        self.plan_critic.save(str(self.checkpoint_dir / f"plan_critic_{tag}.pkl"))
         log_path = self.checkpoint_dir / f"training_log_{tag}.json"
         with open(log_path, "w") as f:
             json.dump(self._training_log, f, indent=2)
@@ -335,6 +401,12 @@ class RLTrainer:
     def load_checkpoint(self, tag: str = "latest") -> None:
         self.clar_policy.load(str(self.checkpoint_dir / f"clar_policy_{tag}.pkl"))
         self.plan_policy.load(str(self.checkpoint_dir / f"plan_policy_{tag}.pkl"))
+        clar_critic_path = self.checkpoint_dir / f"clar_critic_{tag}.pkl"
+        plan_critic_path = self.checkpoint_dir / f"plan_critic_{tag}.pkl"
+        if clar_critic_path.exists():
+            self.clar_critic.load(str(clar_critic_path))
+        if plan_critic_path.exists():
+            self.plan_critic.load(str(plan_critic_path))
 
     # ---------------------------------------------------------------------------
     # 辅助方法
@@ -382,20 +454,51 @@ class RLTrainer:
             uncertainty_score=1.0 - user_pref.clarity,
         )
 
-    def _build_clar_state(self, task: ShoppingTask, round_idx: int) -> ClarificationState:
-        """从任务状态构建澄清 POMDP 状态。"""
+    def _build_clar_state(
+        self,
+        task: ShoppingTask,
+        round_idx: int,
+        belief: Optional[BeliefState] = None,
+    ) -> ClarificationState:
+        """
+        从任务状态 + 信念状态构建澄清 POMDP 状态。
+
+        uncertainty_vector 从信念状态的熵（归一化）得出，
+        比固定的 0/1 二值更精细，能体现"部分了解"的状态。
+
+        impact_vector 用信念的 VoI（期望信息增益）替代静态权重，
+        使策略能优先询问信息价值最高的槽位。
+        """
         slot_names = list(task.uncertainty_slots.keys())[:len(ALL_SLOTS)]
 
-        unc = np.array([
-            0.0 if task.uncertainty_slots.get(s) is not None else 1.0
-            for s in slot_names
-        ])
-        # 影响分：预算和品类场景影响最大
-        impact_map = {
-            "budget_total": 1.0, "usage_scenario": 0.9, "delivery_days": 0.7,
-            "brand_preference": 0.6, "size": 0.8, "color": 0.2,
-        }
-        imp = np.array([impact_map.get(s, 0.3) for s in slot_names])
+        if belief is not None:
+            # 使用信念状态的归一化熵作为不确定性
+            unc = np.array([
+                belief.slot_beliefs[s].uncertainty()
+                if s in belief.slot_beliefs else
+                (0.0 if task.uncertainty_slots.get(s) is not None else 1.0)
+                for s in slot_names
+            ])
+            # 使用 VoI 作为影响力（期望询问收益）
+            imp = np.array([
+                belief.slot_beliefs[s].expected_info_gain()
+                if s in belief.slot_beliefs else 0.3
+                for s in slot_names
+            ])
+            # 归一化 VoI 到 [0, 1]
+            imp_max = imp.max()
+            if imp_max > 1e-8:
+                imp = imp / imp_max
+        else:
+            unc = np.array([
+                0.0 if task.uncertainty_slots.get(s) is not None else 1.0
+                for s in slot_names
+            ])
+            impact_map = {
+                "budget_total": 1.0, "usage_scenario": 0.9, "delivery_days": 0.7,
+                "brand_preference": 0.6, "size": 0.8, "color": 0.2,
+            }
+            imp = np.array([impact_map.get(s, 0.3) for s in slot_names])
 
         return ClarificationState(
             slot_names=slot_names,

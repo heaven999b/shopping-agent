@@ -41,6 +41,7 @@ from shopping_agent.interaction.intent_parser import IntentParser
 from shopping_agent.learning.logger import BehaviorLogger
 from shopping_agent.learning.preference_updater import PreferenceUpdater
 from shopping_agent.memory.preference_memory import PreferenceMemory
+from shopping_agent.planning.constraint_relaxer import ConstraintRelaxer
 from shopping_agent.planning.explainer import Explainer
 from shopping_agent.planning.planner import ConstraintAwarePlanner
 from shopping_agent.product.candidate_graph import CandidateGraphBuilder
@@ -77,6 +78,7 @@ class ShoppingAgentOrchestrator:
         self.explainer = Explainer()
         self.behavior_logger = BehaviorLogger()
         self.preference_updater = PreferenceUpdater()
+        self.constraint_relaxer = ConstraintRelaxer()
 
         # 会话存储（生产环境应替换为 Redis/DB）
         self._sessions: dict[str, AgentState] = {}
@@ -429,7 +431,39 @@ class ShoppingAgentOrchestrator:
         state.candidate_plans = valid_plans
 
         if not valid_plans:
-            raise VerificationError("所有候选方案均未通过校验，请尝试调整约束条件。")
+            # ── 约束松弛诊断：在抛出错误前尝试分析并记录松弛建议 ──
+            last_report = reports[-1] if reports else None
+            relax_result = self.constraint_relaxer.diagnose(state.task, last_report)
+            state.record_attribution(
+                module="ConstraintRelaxer",
+                decision=f"诊断到 {len(relax_result.options)} 个松弛选项",
+                rationale="; ".join(relax_result.infeasible_reasons[:2]),
+            )
+            # 若可自动松弛（仅软约束），静默执行并重试一次规划
+            if relax_result.can_auto_relax and relax_result.recommended:
+                relaxed_task = relax_result.apply_recommended(state.task)
+                if relaxed_task is not None:
+                    state.task = relaxed_task
+                    state.record_attribution(
+                        module="ConstraintRelaxer",
+                        decision=f"自动松弛: {relax_result.recommended.description}",
+                        rationale="软约束放弃，无需用户确认",
+                    )
+                    # 以松弛后的约束重新校验原始方案
+                    for plan in state.candidate_plans or []:
+                        re_report = self.verifier.verify(plan, relaxed_task)
+                        if re_report.passed:
+                            state.candidate_plans = [plan]
+                            state.selected_plan = plan
+                            return
+            # 将松弛建议嵌入错误消息
+            relax_hint = (
+                f"\n\n建议：{relax_result.recommended.description}"
+                if relax_result.recommended else ""
+            )
+            raise VerificationError(
+                f"所有候选方案均未通过校验。{relax_hint}"
+            )
 
         # 选分数最高的方案作为主推
         state.selected_plan = max(valid_plans, key=lambda p: p.overall_score)
@@ -455,10 +489,18 @@ class ShoppingAgentOrchestrator:
     def _handle_graceful_error(self, state: AgentState, error: Exception) -> str:
         if isinstance(error, IntentParseError):
             return "抱歉，我没能理解您的购物需求。能告诉我您想买什么，大概预算是多少吗？"
-        if isinstance(error, NoProductFoundError):
+
+        if isinstance(error, (NoProductFoundError, InfeasibleConstraintError)):
+            # 调用约束松弛器，给出具体的、可操作的建议
+            if state.task:
+                relax_result = self.constraint_relaxer.diagnose(state.task)
+                return relax_result.user_message()
             return "在您的条件下没有找到合适的商品，能稍微放宽一下约束吗？比如预算或品牌。"
-        if isinstance(error, InfeasibleConstraintError):
+
+        if isinstance(error, VerificationError):
+            # VerificationError 中可能已包含松弛建议
             return str(error)
+
         return f"遇到了一个问题：{str(error)}"
 
     def _build_response(self, state: AgentState, message: str,

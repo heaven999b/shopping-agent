@@ -156,6 +156,72 @@ class LinearSoftmaxPolicy:
 
 
 # ---------------------------------------------------------------------------
+# Linear Value Critic — V(s) 基线估计，用于 GAE 优势计算
+# ---------------------------------------------------------------------------
+
+class LinearValueCritic:
+    """
+    线性价值函数 V(s) ≈ w^T φ(s)。
+
+    作为 Actor-Critic 中的 Critic 端，为 GAE 提供基线估计。
+    相比移动平均基线，学习到的 V(s) 是 state-dependent 的，
+    能更精确地估计每个状态的期望回报，大幅降低梯度方差。
+
+    更新规则（TD(0) 目标）：
+      δ = target - V(s)
+      w += lr · δ · φ(s)
+
+    论文符号：
+      V_φ(s) = φ_v^T s（线性 critic）
+      L_critic = Σ_t (V_φ(s_t) - G_t)^2
+    """
+
+    def __init__(self, feature_dim: int, learning_rate: float = 1e-3):
+        self.feature_dim = feature_dim
+        self.lr = learning_rate
+        self.w = np.zeros(feature_dim)
+        self._update_count = 0
+
+    def predict(self, state_vec: np.ndarray) -> float:
+        """V(s) 前向预测。"""
+        return float(self.w @ state_vec)
+
+    def update(self, state_vec: np.ndarray, target: float) -> float:
+        """
+        最小二乘 TD 更新。
+
+        参数：
+            state_vec — 状态特征向量
+            target    — 目标回报（MC return 或 TD target）
+        返回：
+            critic loss = (V(s) - target)^2
+        """
+        pred = self.predict(state_vec)
+        error = target - pred
+        self.w += self.lr * error * state_vec
+        self._update_count += 1
+        return float(error ** 2)
+
+    def batch_update(self, state_vecs: list[np.ndarray],
+                     targets: list[float]) -> float:
+        """批量更新（均值梯度），返回平均 MSE loss。"""
+        losses = [self.update(sv, t) for sv, t in zip(state_vecs, targets)]
+        return float(np.mean(losses)) if losses else 0.0
+
+    def save(self, path: str) -> None:
+        with open(path, "wb") as f:
+            pickle.dump({"w": self.w, "lr": self.lr,
+                         "update_count": self._update_count}, f)
+
+    def load(self, path: str) -> None:
+        with open(path, "rb") as f:
+            data = pickle.load(f)
+        self.w = data["w"]
+        self.lr = data.get("lr", self.lr)
+        self._update_count = data.get("update_count", 0)
+
+
+# ---------------------------------------------------------------------------
 # Clarification Policy
 # ---------------------------------------------------------------------------
 

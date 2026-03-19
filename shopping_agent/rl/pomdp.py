@@ -272,7 +272,7 @@ class Episode:
 
     def compute_returns(self, gamma: float = 0.99) -> tuple[list[float], list[float]]:
         """
-        计算折扣累积回报（用于 REINFORCE）。
+        计算折扣累积回报（用于 REINFORCE baseline）。
         返回 (clarification_returns, planning_returns)
         """
         def _discounted_returns(rewards: list[float]) -> list[float]:
@@ -296,3 +296,75 @@ class Episode:
             _discounted_returns(clar_rewards),
             _discounted_returns(plan_rewards),
         )
+
+    def compute_gae_advantages(
+        self,
+        clar_critic,
+        plan_critic,
+        gamma: float = 0.99,
+        lam: float = 0.95,
+    ) -> tuple[list[float], list[float], list[float], list[float]]:
+        """
+        计算 GAE（Generalized Advantage Estimation）优势和 MC 回报。
+
+        GAE 公式（Schulman et al. 2015）：
+          δ_t = r_t + γ · V(s_{t+1}) · (1 - done_t) - V(s_t)
+          A_t^GAE(γ,λ) = Σ_{l=0}^{T-t} (γλ)^l · δ_{t+l}
+
+        λ 控制偏差-方差权衡：
+          λ=0 → 1-step TD advantage（低方差，高偏差）
+          λ=1 → MC advantage G_t - V(s_t)（无偏，高方差）
+
+        返回：
+          (clar_advantages, plan_advantages, clar_returns, plan_returns)
+          clar_returns / plan_returns 是 MC 回报，用于更新 Critic
+        """
+        clar_rewards = [t.reward for t in self.clarification_transitions]
+        plan_rewards = [t.reward for t in self.planning_transitions]
+
+        if clar_rewards:
+            clar_rewards[-1] += float(self.final_task_success)
+        if plan_rewards:
+            plan_rewards[-1] += self.final_plan_score
+
+        def _gae(transitions, rewards, critic):
+            if not transitions:
+                return [], []
+
+            T = len(transitions)
+            advantages = [0.0] * T
+            returns = [0.0] * T
+
+            # MC returns (backward pass)
+            G = 0.0
+            for t in reversed(range(T)):
+                G = rewards[t] + gamma * G
+                returns[t] = G
+
+            # GAE advantages (backward pass)
+            gae = 0.0
+            for t in reversed(range(T)):
+                sv_t = transitions[t].state_vec
+                V_t = critic.predict(sv_t)
+
+                sv_next = transitions[t].next_state_vec
+                done = transitions[t].done
+                V_next = critic.predict(sv_next) if (sv_next is not None and not done) else 0.0
+
+                delta = rewards[t] + gamma * V_next * (1.0 - float(done)) - V_t
+                gae = delta + gamma * lam * gae * (1.0 - float(done))
+                advantages[t] = gae
+
+            # 标准化优势（降低数值不稳定性）
+            adv_arr = np.array(advantages)
+            if adv_arr.std() > 1e-8:
+                adv_arr = (adv_arr - adv_arr.mean()) / (adv_arr.std() + 1e-8)
+            advantages = adv_arr.tolist()
+
+            return advantages, returns
+
+        clar_adv, clar_ret = _gae(self.clarification_transitions,
+                                   clar_rewards, clar_critic)
+        plan_adv, plan_ret = _gae(self.planning_transitions,
+                                   plan_rewards, plan_critic)
+        return clar_adv, plan_adv, clar_ret, plan_ret
