@@ -11,3 +11,6 @@ build/
 .venv
 venv/
 checkpoints/
+logs/
+models/
+data/shopplan.db
