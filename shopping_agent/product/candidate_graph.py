@@ -20,7 +20,7 @@ from collections import defaultdict
 from typing import Any, Optional
 
 from shopping_agent.common.constants import MAX_CANDIDATES_PER_SLOT
-from shopping_agent.common.types import CandidatePlan, PlanItem, Product, ShoppingTask
+from shopping_agent.common.types import BundlePlan, CandidatePlan, PlanItem, Product, ShoppingTask
 
 
 # 预定义的常见互补关系（生产环境从共购数据中挖掘）
@@ -268,7 +268,7 @@ class GraphBasedRecovery:
         new_total = sum(item.product.final_price for item in items)
         constraint_score = 1.0 if (budget is None or new_total <= budget) else max(0.0, 1.0 - (new_total - budget) / budget)
 
-        return CandidatePlan(
+        common_kwargs = dict(
             plan_id=str(uuid.uuid4()),
             task_id=plan.task_id,
             items=items,
@@ -284,6 +284,25 @@ class GraphBasedRecovery:
             )],
             explanation=f"[图修复方案] 在原方案基础上替换了 {swaps_done} 件商品。\n{plan.explanation}",
         )
+        if isinstance(plan, BundlePlan):
+            return BundlePlan(
+                **common_kwargs,
+                persona_alignment_score=plan.persona_alignment_score,
+                style_coherence_score=plan.style_coherence_score,
+                scenario_fit_score=plan.scenario_fit_score,
+                bundle_completeness_score=plan.bundle_completeness_score,
+                long_term_fit_score=plan.long_term_fit_score,
+                phased_purchase_score=plan.phased_purchase_score,
+                persona_summary=plan.persona_summary,
+                bundle_type=plan.bundle_type,
+                bundle_objective=plan.bundle_objective,
+                budget_allocation=plan.budget_allocation,
+                phased_purchase_options=plan.phased_purchase_options,
+                slot_coverage=plan.slot_coverage,
+                compatibility_score=plan.compatibility_score,
+                phased_upgrade_plan=plan.phased_upgrade_plan,
+            )
+        return CandidatePlan(**common_kwargs)
 
     def build_product_index(self, products: list[Product]) -> dict[str, Product]:
         """从商品列表构建 product_id → Product 索引。"""

@@ -2,14 +2,44 @@
 
 **Structured Hierarchical Optimization and Planning for Shopping Agents**
 
-面向复杂消费决策的约束感知、POMDP 驱动、强化学习增强型购物智能体。
+面向复杂消费决策的长期记忆增强型组合规划购物智能体。
+
+当前项目的主线已经从“推荐单品”扩展到两条更明确的系统能力：
+
+- **系统化推荐（Systematic Recommendation）**：不只给单个商品，而是输出组合级 `BundlePlan`、分阶段购买路线、行动清单和 trade-off 提示。
+- **长期用户成长建模（Long-horizon User Growth Modeling）**：不只记录静态偏好，而是持续维护 `owned_items`、`active_setups`、`upgrade_stage`、`purchase_rhythm`、`persona drift` 等长期状态。
+- **计划工作台（Plan Workspace）**：orchestrator 会把推荐组织为 `workspace + artifacts`，便于前端展示成可持续推进的计划视图，而不只是聊天文本。
 
 ---
+
+## Core Contribution
+
+This project focuses on one main contribution line:
+
+1. **Bundle-level planning instead of single-item recommendation**
+2. **Phased purchase and upgrade-path support**
+3. **Long-horizon user memory for evolving preferences**
+
+RL, POMDP-style belief tracking, retrieval, and constraint handling are treated as
+supporting components that improve this main planning line, rather than separate claims.
+
+## 核心卖点
+
+1. **系统化购买建议**
+   从单品推荐升级为组合级规划，支持预算分配、风格一致性、长期适配和“一步到位 / 分阶段升级 / 保守路线”三类购买路径。
+2. **长期用户成长建模**
+   用户画像不再只是静态偏好表，而是会维护拥有状态、升级位置、购买节奏、aspiration signals 和 persona drift。
+3. **Persona-aware + Drift-aware 决策**
+   检索、规划、解释和澄清会联合考虑身份表达、风格偏好、预算人格，以及用户在交互中的变化轨迹。
+4. **计划化输出而非纯对话输出**
+   系统会返回结构化 `workspace`，其中包含 `growth_snapshot`、`bundle_recommendation`、`phase_plan`、`action_checklist`、`tradeoff_notes` 等 artifact。
+5. **可评测、可恢复、可演进**
+   benchmark 已覆盖 bundle、drift、长期升级与 phased purchase；session/workspace 可持久化恢复，便于长期陪伴式场景。
 
 ## 架构概览
 
 ```
-七层架构 + 两条闭环 + 四个核心方法模块
+七层架构 + 两条闭环 + 一个主方法主线
 ```
 
 ### 七层架构
@@ -24,13 +54,39 @@
 | [6] Risk & Governance | 五重并行校验 + 自动约束松弛 | `verifier/pipeline.py` |
 | [7] Learning & Evaluation | RL 训练、行为克隆、归因追踪 | `rl/`, `learning/` |
 
-### 四个核心方法模块
+### 四层评分友好分层
 
-1. **Bayesian Belief State** — 对用户偏好维护后验分布，通过 VoI（期望信息增益）驱动澄清决策，替代启发式信息熵估计
-2. **Hybrid Retrieval** — 关键词精确过滤 + TF-IDF 字符级 n-gram 语义向量召回，覆盖中文近义词
-3. **Actor-Critic RL（GAE）** — 澄清策略 π_θ 和规划策略 π_φ 用 GAE（Generalized Advantage Estimation）替代原始 REINFORCE，配套线性 Critic V(s) 大幅降低梯度方差
-4. **Constraint Relaxation** — 在检索/规划失败时自动诊断约束冲突，生成排序松弛方案（软约束优先 → 预算扩增 → 属性降级）
-5. **Persona-aware Planning** — 用户画像扩展为最小 persona state，商品支持 `persona_tags`，检索重排与方案解释会联合考虑身份表达、审美偏好与预算人格
+1. **Input Layer**
+   `intent_parser`, `clarification`, `user state`
+2. **Retrieval Layer**
+   `retrieval`, `product normalization`, `candidate graph`
+3. **Decision Layer**
+   `bundle_planner`, `explainer`, `workspace artifacts`
+4. **Verification Layer**
+   `verifier`, `constraint relaxer`, `risk handling`
+
+Each layer is modular and can be independently replaced or extended.
+
+### 主方法主线
+
+**Memory-Augmented Bundle Planning**
+
+项目的核心方法线收束为一个主问题：
+
+- 用 `BundlePlan` 而不是单品作为主要决策单位
+- 用长期用户状态而不是一次性偏好做组合评分
+- 用 phased purchase / upgrade path 让推荐跨时间展开
+
+围绕这条主线，当前系统使用以下支持组件：
+
+1. **Belief-guided Clarification**
+   用 belief / uncertainty 表示澄清价值，减少不必要问题数。
+2. **Hybrid Retrieval**
+   用关键词 + TF-IDF 做候选召回。
+3. **Constraint Relaxation**
+   在预算或属性冲突时给出可执行的松弛路径。
+4. **RL-enhanced Policy**
+   用 Actor-Critic 训练澄清与规划策略，作为增强模块，而不是主贡献本身。
 
 ### 两条闭环
 
@@ -40,7 +96,7 @@
   → 约束感知规划 → 五重校验 → 约束松弛重试 → 图修复 → 执行 → 反馈
 
 持续学习闭环：
-  用户反馈 → 归因分析 → 偏好更新 → Actor-Critic (GAE) 策略优化 → 行为克隆预热
+  用户反馈 → 归因分析 → 偏好更新 → RL-enhanced policy 优化 → 行为克隆预热
 ```
 
 ---
@@ -49,10 +105,12 @@
 
 ```python
 ShoppingTask     # 意图解析结果（含约束、不确定性、冲突检测）
-UserProfile      # 用户长期偏好画像（SQLite 持久化）
+UserProfile      # 用户长期成长画像（SQLite 持久化）
 Product          # 标准化商品对象（跨平台统一格式，TTL 刷新）
-CandidatePlan    # 候选方案（含得分、trade-off、校验状态）
-AgentState       # 会话全局状态（含归因追踪，SessionStore 持久化）
+BundlePlan       # 组合级方案对象（含 slot coverage、compatibility、阶段升级路径）
+CandidatePlan    # 兼容旧接口的基类
+PlanWorkspace    # 计划工作台（artifact 化输出，支持生命周期流转）
+AgentState       # 会话全局状态（含归因追踪、workspace，SessionStore 持久化）
 BeliefState      # POMDP 信念状态（Bayesian 后验，VoI 驱动）
 ```
 
@@ -67,7 +125,7 @@ shopping_agent/
 ├── memory/             # preference_memory（SQLite 持久化）
 ├── retrieval/          # hybrid_retriever（关键词 + TF-IDF 向量）
 ├── product/            # normalizer, candidate_graph（图修复）
-├── planning/           # planner, explainer, constraint_relaxer
+├── planning/           # bundle_planner, planner, explainer, constraint_relaxer
 ├── verifier/           # pipeline（5个独立checker）
 ├── tools/              # search, cart（含重试/降级）
 ├── learning/           # logger, preference_updater, trajectory_logger
@@ -79,9 +137,9 @@ shopping_agent/
 
 data/
 ├── products.json       # 27 件示例商品（8 品类）
-└── tasks.json          # 10 条基准测试任务
+└── tasks.json          # 含 bundle / drift / phased_purchase / upgrade_path 的基准任务集
 
-tests/                  # 70 个单元测试（pytest）
+tests/                  # 93 个单元测试（pytest）
 ```
 
 ---
@@ -101,18 +159,29 @@ export ANTHROPIC_API_KEY=your_key_here
 # 对话模式
 python main.py chat --user-id user_001
 
-# 基准测试（启发式 vs RL 对比）
+# 基准测试（启发式 vs RL-enhanced 对比）
 python main.py benchmark --compare
 
 # Benchmark 脚本
 python run_benchmark.py --mode pipeline   # 模块级 benchmark
 python run_benchmark.py --mode e2e        # 端到端 benchmark（走公开入口）
+python run_benchmark.py --mode e2e --save # 保存完整报告 + summary + metrics + per_task
+python run_benchmark.py --baseline-suite  # 运行 full / naive / constraint-only / single-item 对比
 
-# RL 行为克隆预训练（冷启动）
+# RL-enhanced 策略训练（增强模块）
 python main.py train --pretrain --synthetic
 
 # 数据目录信息
 python main.py catalog
+
+# 计划工作台操作
+python main.py plan --session-id <id> --show
+python main.py plan --session-id <id> --accept --route "分阶段升级"
+python main.py plan --session-id <id> --advance-phase
+python main.py plan --session-id <id> --complete
+
+# 一键复现
+bash run.sh
 ```
 
 ### 复现与依赖说明
@@ -137,7 +206,32 @@ pip install -r requirements-dev.txt
 pytest
 ```
 
-当前仓库包含 `70` 个 pytest 单元测试，并通过 GitHub Actions 在多 Python 版本下执行。
+当前仓库包含 `93` 个 pytest 单元测试，并通过 GitHub Actions 在多 Python 版本下执行。
+
+### 复现闭环
+
+```bash
+# 1. 安装依赖
+pip install -r requirements-dev.txt
+
+# 2. 跑测试
+pytest -q
+
+# 3. 跑端到端 benchmark 并保存结果
+python run_benchmark.py --mode e2e --save
+
+# 4. 查看 logs/ 下的固定产物
+# - benchmark_<mode>_<ts>.json
+# - benchmark_<mode>_<ts>_summary.json
+# - benchmark_<mode>_<ts>_metrics.json
+# - benchmark_<mode>_<ts>_per_task.json
+```
+
+如果只想快速验证仓库是否“能跑通”，可以直接执行：
+
+```bash
+bash run.sh
+```
 
 ### Benchmark 模式
 
@@ -181,8 +275,55 @@ benchmark 导出报告现在带固定 schema：
 - `report_sections.task_family_summary`
 - `report_sections.per_task_results`
 
+如果使用 `--save`，当前会固定导出四类文件：
+
+- `benchmark_<mode>_<ts>.json`
+- `benchmark_<mode>_<ts>_summary.json`
+- `benchmark_<mode>_<ts>_metrics.json`
+- `benchmark_<mode>_<ts>_per_task.json`
+
+仓库里也附带了一个静态样例：[examples/benchmark_report_sample.json](/Users/yihaiwen/Documents/New%20project/repo/examples/benchmark_report_sample.json)。
+
 任务如果未显式声明 `task_family`，系统会按 `clarification_heavy`、`bundle`、`constraint_dense`、`drift`、`comparison`、`general` 自动归类。
 默认 benchmark 任务集中现在也包含长期升级与分阶段购买样例，例如 `upgrade_path` 和 `phased_purchase`。
+
+### Baselines
+
+当前仓库支持一组评分友好的 baseline 对比：
+
+- `full_agent`
+  完整系统
+- `naive_retrieval`
+  近似只保留基础召回，不使用 graph / verifier / clarification
+- `constraint_only`
+  保留约束驱动，但去掉 persona 与长期记忆信号
+- `single_item`
+  将多品类任务退化为单品推荐
+
+运行方式：
+
+```bash
+python run_benchmark.py --baseline-suite --save
+```
+
+默认输出会形成一张对比表，重点观察：
+
+- `success_rate`
+- `avg_bundle_completeness_score`
+- `avg_long_term_fit_score`
+- 预算压力近似值 `RegretRisk`
+
+### Recommended Research Question
+
+如果按论文/评审视角来收束，当前最推荐的问题表述是：
+
+> How can an agent perform long-horizon bundle planning under evolving user memory and phased purchase constraints?
+
+在这个表述里：
+
+- `BundlePlan` 是主决策对象
+- 长期用户状态是主状态表示
+- `RL-enhanced policy` 只负责优化澄清与规划动作
 
 ### 用户记忆
 
@@ -193,24 +334,57 @@ benchmark 导出报告现在带固定 schema：
 - 画像还会记录最近一次 persona drift 和 transition log，用于表示用户在预算、风格、品牌取向上的变化轨迹。
 - 长期成长状态现在会额外维护 `owned_items`、`active_setups`、`upgrade_stage`、`purchase_rhythm`、`aspiration_signals`，用于描述用户已经拥有什么、正处在哪个升级阶段，以及下一步更适合补什么。
 
+### 系统化推荐与计划工作台
+
+- `BundlePlan` 已经成为组合级方案对象，支持 `slot_coverage`、`compatibility_score`、`bundle_objective`、`budget_allocation`、`style_coherence_score`、`bundle_completeness_score`、`long_term_fit_score`、`phased_upgrade_plan`。
+- `CandidatePlan` 目前仍保留为兼容基类，方便已有 verifier / cart / explainer 链路逐步迁移。
+- orchestrator 会返回结构化 `workspace`，而不只是自然语言回答。
+- 当前 `workspace` 默认包含这些 artifact：
+  - `growth_snapshot`
+  - `bundle_recommendation`
+  - `phase_plan`
+  - `action_checklist`
+  - `tradeoff_notes`
+- `action_checklist` 会把方案拆成“当前该买什么 / 后续再补什么 / 可选升级项”。
+- `workspace` 还支持最小生命周期流转：`active`、`accepted`、`completed`、`archived`。
+- 当用户接受“分阶段升级”路线时，系统会额外生成 `next_phase_handoff`，为下一阶段推荐保留交接信息。
+- `workspace` 会跟 session 一起持久化恢复，因此前端可以把它当作计划工作台，而不是一次性聊天结果。
+- CLI 也支持直接操作 workspace：查看当前计划、接受方案、推进 phase、标记完成、归档。
+- 一个最小闭环是：先通过 `chat` 生成 `session_id`，再用 `python main.py plan --session-id <id> --accept --route "分阶段升级"` 接受 Phase 1，之后用 `--advance-phase` 和 `--complete` 推进。
+
+### Failure Analysis
+
+当前系统最常见的失败类型包括：
+
+1. **Ambiguous user intent**
+   多轮澄清不足时，可能把单品需求误解为组合需求，或反之。
+2. **Over-constrained budget**
+   预算与属性要求同时过严时，会进入无可行方案或仅能松弛的状态。
+3. **Missing product relations**
+   当 catalog 中缺少互补/替代关系时，组合完整度会下降。
+4. **Persona misinterpretation**
+   当用户表达含糊或 drift 很快时，可能出现风格匹配偏差。
+
+Future work will focus on stronger intent disambiguation, richer product relation modeling, and more robust long-horizon state tracking.
+
 ### Persona-aware 规划
 
 - 商品数据支持 `persona_tags`；未显式标注时，catalog loader 会根据品牌、价格、颜色和品类推断最小 tags。
 - 检索重排会引入 `persona_alignment_score`，优先保留更贴近用户形象与风格表达的候选。
-- 规划器输出的 `CandidatePlan` 现在包含 `persona_alignment_score`、`persona_summary`，单个 `PlanItem` 也会带 `persona_reason`。
+- 规划器主入口现在是 `BundlePlanner`，输出的 `BundlePlan` 包含 `persona_alignment_score`、`persona_summary`，单个 `PlanItem` 也会带 `persona_reason`。
 - 解释器会在详细说明里展示“为什么这套方案更贴近当前用户画像”，而不只给价格和评分。
 - 对多品类任务，规划器会输出组合级字段：`bundle_type`、`bundle_objective`、`budget_allocation`、`style_coherence_score`、`scenario_fit_score`、`bundle_completeness_score`。
 - 当前还支持最小版 phased purchase：方案里会附带“一步到位 / 分阶段升级 / 保守路线”三类购买路径建议。
-- orchestrator 响应现在还会返回 `workspace`，其中按 artifact 组织为 `growth_snapshot`、`bundle_recommendation`、`phase_plan`、`tradeoff_notes`，便于前端做卡片式计划视图。
+- orchestrator 响应现在还会返回 `workspace`，其中按 artifact 组织为 `growth_snapshot`、`bundle_recommendation`、`phase_plan`、`action_checklist`、`tradeoff_notes`，便于前端做卡片式计划视图。
 
 ### Drift-aware 澄清
 
 - 当 `persona_stability` 偏低时，澄清策略会额外考虑 `identity_goal`、`aesthetic_preference`、`budget_flexibility` 这类问题，而不只问硬约束缺口。
 - 用户主动修正预算、风格、身份表达或品牌取向时，系统会把这些变化写入 drift log，并在后续上下文化加载中轻量反映出来。
 
-### RL 训练日志
+### RL-Enhanced Policy 指标
 
-RL 训练与评估现在也会输出项目自有的阶段性指标：
+RL 训练与评估现在输出的是增强策略指标，而不是项目唯一目标：
 
 - `avg_intent_resolution_score`
 - `avg_execution_readiness_score`
@@ -218,7 +392,7 @@ RL 训练与评估现在也会输出项目自有的阶段性指标：
 - `avg_drift_adaptation_score`
 - `drift_detection_rate`
 
-这些指标用于把策略训练目标和 benchmark 诊断结果对齐，而不是只看最终成功率。
+这些指标用于把增强策略和 bundle-planning 主线对齐，而不是把 RL 本身当作项目主贡献。
 
 ### 示例交互
 
@@ -242,23 +416,26 @@ Agent: 抱歉，当前条件下暂无完全匹配的商品：
 
 ---
 
-## 强化学习模块
+## RL-Enhanced Policy Module
 
-### POMDP 形式化
+### Decision Formulation
 
 ```
-Clarification POMDP:
-  State  s  = BeliefState（用户偏好后验分布）
-  Action a  ∈ {ASK_slot_i} ∪ {PROCEED}
-  Obs    o  = 用户回答（带噪声观测）
-  Belief update: b_{t+1}(p) ∝ P(o | p) · b_t(p)
-  Reward R  = α·success - β·turns - γ·dropout_prob
-  VoI(slot) = H(b_t) - E[H(b_{t+1} | ask slot)]
+State S =
+  (task constraints, long-term user memory, belief/uncertainty, setup status)
 
-Planning POMDP:
-  State  s  = (budget_used/budget, slot_fill_ratio, constraint_sat, ...)
-  Action a  ∈ {SELECT_BEST, SELECT_BUDGET_OPT, SELECT_SAFE}
-  Reward R  = constraint_score + preference_score + value_score
+Action A =
+  {ask_question, retrieve_candidates, propose_bundle, relax_constraint}
+
+Bundle scoring objective =
+  utility(bundle, constraints)
+  + alignment(bundle, long_term_memory)
+  + phase_value(bundle, purchase_rhythm)
+  - risk(bundle)
+
+RL-enhanced policy:
+  仅用于优化 ask / proceed / planning action 的选择，
+  不改变项目的主问题定义。
 ```
 
 ### Actor-Critic 训练（GAE）
@@ -273,7 +450,7 @@ where δ_t = r_t + γ·V(s_{t+1}) - V(s_t)
 ```
 
 ```bash
-# 行为克隆预训练 + RL 微调
+# 行为克隆预训练 + RL-enhanced 微调
 python -m shopping_agent.rl.pretrain --synthetic --epochs 20
 python main.py train --rl --iterations 200
 ```
@@ -281,11 +458,11 @@ python main.py train --rl --iterations 200
 ### 基准测试与消融实验
 
 ```
-Full model:    RL Clarification + RL Planning (GAE)
-Ablation A:    Heuristic Clarification + RL Planning
-Ablation B:    RL Clarification + Heuristic Planning
-Ablation C:    REINFORCE（无 Critic）vs GAE（有 Critic）
-Baseline:      Heuristic Clarification + Heuristic Planning
+Full system:         Bundle planning + long-term memory + phased purchase
+Baseline A:          Naive Retrieval
+Baseline B:          Constraint-only Agent
+Baseline C:          Single-item Agent
+Policy ablation:     Heuristic policy vs RL-enhanced policy
 ```
 
 ```bash
@@ -298,7 +475,8 @@ python run_benchmark.py --rl --save    # 保存详细结果
 ## 设计原则
 
 - **接口契约优先**：`ShoppingTask` 是所有模块的共享契约，先定版再开发
-- **POMDP 可信**：Belief State 有完整 Bayesian 更新，VoI 驱动澄清而非直觉启发式
+- **主线优先**：所有增强模块都服务于 long-horizon bundle planning 主线
+- **Belief-guided**：Belief State 用于降低澄清不确定性，而不是单独作为贡献点
 - **低方差梯度**：GAE + 线性 Critic，不依赖 GPU，支持小数据集训练
 - **校验独立可测**：每个 Verifier 独立，支持并行执行，结果分 PASS/WARN/BLOCK/STALE
 - **失败优雅降级**：约束冲突 → 自动诊断 → 松弛建议 → 图修复 → 用户协商

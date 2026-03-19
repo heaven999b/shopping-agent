@@ -1,0 +1,62 @@
+{
+  "report_schema_version": "v2",
+  "run_id": "sample001",
+  "timestamp": "2026-03-20T12:00:00",
+  "mode": "heuristic",
+  "benchmark_mode": "e2e",
+  "num_tasks": 2,
+  "metrics": {
+    "num_tasks": 2,
+    "success_rate": 1.0,
+    "coverage": 1.0,
+    "avg_overall_score": 0.842,
+    "avg_style_coherence_score": 0.79,
+    "avg_bundle_completeness_score": 1.0,
+    "avg_long_term_fit_score": 0.76,
+    "avg_phased_purchase_score": 0.73
+  },
+  "per_task": [
+    {
+      "task_id": "sample_bundle_001",
+      "task_family": "bundle",
+      "success": true,
+      "overall_score": 0.861,
+      "bundle_completeness_score": 1.0,
+      "long_term_fit_score": 0.78
+    },
+    {
+      "task_id": "sample_upgrade_002",
+      "task_family": "upgrade_path",
+      "success": true,
+      "overall_score": 0.823,
+      "bundle_completeness_score": 1.0,
+      "long_term_fit_score": 0.74
+    }
+  ],
+  "report_sections": {
+    "summary_metrics": {
+      "success_rate": 1.0,
+      "avg_overall_score": 0.842
+    },
+    "task_family_summary": {
+      "bundle": {
+        "num_tasks": 1,
+        "success_rate": 1.0
+      },
+      "upgrade_path": {
+        "num_tasks": 1,
+        "success_rate": 1.0
+      }
+    },
+    "per_task_results": [
+      {
+        "task_id": "sample_bundle_001",
+        "success": true
+      },
+      {
+        "task_id": "sample_upgrade_002",
+        "success": true
+      }
+    ]
+  }
+}

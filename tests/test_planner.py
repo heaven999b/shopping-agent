@@ -11,16 +11,17 @@ from __future__ import annotations
 
 import pytest
 
-from shopping_agent.common.types import TaskType
+from shopping_agent.common.types import BundlePlan, TaskType
 from shopping_agent.common.exceptions import InfeasibleConstraintError
 from shopping_agent.planning.explainer import Explainer
+from shopping_agent.planning.bundle_planner import BundlePlanner
 from shopping_agent.planning.planner import ConstraintAwarePlanner
 from tests.conftest import make_product, make_task
 
 
 @pytest.fixture
 def planner() -> ConstraintAwarePlanner:
-    return ConstraintAwarePlanner(use_rl=False)
+    return BundlePlanner(use_rl=False)
 
 
 def _plan(planner, task, products, user_profile=None):
@@ -101,10 +102,14 @@ class TestPlannerBundle:
         plans = _plan(planner, task, [product_headset, product_monitor], user_profile)
 
         assert plans[0].bundle_type == "bundle_plan"
+        assert isinstance(plans[0], BundlePlan)
         assert plans[0].bundle_objective
         assert set(plans[0].budget_allocation.keys()) == {"headset", "monitor"}
         assert plans[0].style_coherence_score > 0.5
         assert plans[0].bundle_completeness_score == pytest.approx(1.0, abs=1e-4)
+        assert plans[0].slot_coverage == {"headset": True, "monitor": True}
+        assert plans[0].compatibility_score > 0.8
+        assert plans[0].phased_upgrade_plan == plans[0].phased_purchase_options
         assert plans[0].phased_purchase_options
 
 

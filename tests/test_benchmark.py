@@ -193,3 +193,60 @@ class TestBenchmarkRunnerModes:
         assert "avg_long_term_fit_score" in report["metrics"]
         assert "avg_phased_purchase_score" in report["metrics"]
         assert report["metrics"]["task_family_summary"]["upgrade_path"]["num_tasks"] == 1
+
+    def test_save_report_writes_summary_and_metrics_artifacts(self, tmp_path):
+        tasks = [
+            {
+                "task_id": "tb006",
+                "query": "帮我买一个降噪耳机，预算2000以内",
+                "task_type": "single",
+                "categories": ["headset"],
+                "constraints": {
+                    "budget_total": {"value": 2000.0, "severity": "hard"},
+                },
+                "uncertainty_slots": {},
+                "expected": {"required_attrs": []},
+            }
+        ]
+        tasks_path = tmp_path / "tasks_save.json"
+        tasks_path.write_text(json.dumps(tasks, ensure_ascii=False), encoding="utf-8")
+
+        runner = BenchmarkRunner(
+            benchmark_mode="pipeline",
+            tasks_path=str(tasks_path),
+            output_dir=str(tmp_path / "logs"),
+        )
+        report = runner.run(verbose=False)
+        path = runner.save_report(report, filename="benchmark_test.json")
+
+        assert path.exists()
+        assert (tmp_path / "logs" / "benchmark_test_summary.json").exists()
+        assert (tmp_path / "logs" / "benchmark_test_metrics.json").exists()
+        assert (tmp_path / "logs" / "benchmark_test_per_task.json").exists()
+
+    def test_baseline_profile_is_reflected_in_report(self, tmp_path):
+        tasks = [
+            {
+                "task_id": "tb007",
+                "query": "帮我补一套桌搭，已有键盘",
+                "task_type": "bundle",
+                "categories": ["monitor", "headset"],
+                "constraints": {
+                    "budget_total": {"value": 5000.0, "severity": "hard"},
+                },
+                "uncertainty_slots": {},
+                "expected": {"required_attrs": []},
+            }
+        ]
+        tasks_path = tmp_path / "tasks_baseline.json"
+        tasks_path.write_text(json.dumps(tasks, ensure_ascii=False), encoding="utf-8")
+
+        runner = BenchmarkRunner(
+            benchmark_mode="pipeline",
+            tasks_path=str(tasks_path),
+            output_dir=str(tmp_path / "logs"),
+            baseline_profile="single_item",
+        )
+        report = runner.run(verbose=False)
+
+        assert report["baseline_profile"] == "single_item"

@@ -274,7 +274,7 @@ class Product:
 
 
 # ---------------------------------------------------------------------------
-# CandidatePlan — 规划器输出的候选方案
+# CandidatePlan / BundlePlan — 规划器输出的候选方案
 # ---------------------------------------------------------------------------
 
 @dataclass
@@ -351,6 +351,23 @@ class CandidatePlan:
     verification_issues: list[str] = field(default_factory=list)
 
     created_at: datetime = field(default_factory=datetime.now)
+
+
+@dataclass
+class BundlePlan(CandidatePlan):
+    """
+    组合级规划对象。
+
+    为兼容历史接口，BundlePlan 继承 CandidatePlan；
+    旧模块仍可按 CandidatePlan 消费，新链路可显式依赖 BundlePlan。
+    """
+    slot_coverage: dict[str, bool] = field(default_factory=dict)
+    compatibility_score: float = 0.0
+    phased_upgrade_plan: list[dict[str, Any]] = field(default_factory=list)
+
+    @property
+    def is_bundle_native(self) -> bool:
+        return True
 
 
 @dataclass

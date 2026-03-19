@@ -8,6 +8,7 @@ import json
 
 from shopping_agent.agent.orchestrator import ShoppingAgentOrchestrator
 from shopping_agent.agent.state import AgentState, WorkflowStep
+from shopping_agent.common.types import FeedbackSignal
 from shopping_agent.learning.logger import BehaviorLogger
 from shopping_agent.storage.db import SQLiteDB
 from shopping_agent.storage.session_store import SessionStore
@@ -106,3 +107,193 @@ class TestOrchestratorPersistence:
         assert "growth_snapshot" in artifact_types
         assert "bundle_recommendation" in artifact_types
         assert "phase_plan" in artifact_types
+        assert "action_checklist" in artifact_types
+
+    def test_restore_session_recovers_workspace(self, tmp_path):
+        db = SQLiteDB(db_path=":memory:")
+        session_store = SessionStore(db=db)
+        logger = BehaviorLogger(log_path=str(tmp_path / "behavior.jsonl"))
+        orchestrator = ShoppingAgentOrchestrator(
+            session_store=session_store,
+            behavior_logger=logger,
+        )
+
+        state = AgentState(session_id="sess_restore_ws", user_id="user_restore_ws")
+        state.task = make_task(
+            task_id="task_restore_ws",
+            categories=["keyboard", "monitor"],
+            budget=4000.0,
+        )
+        state.user_profile = orchestrator.preference_memory.load("user_restore_ws")
+        state.selected_plan = make_plan(
+            plan_id="plan_restore_ws",
+            task_id="task_restore_ws",
+            products=[
+                make_product(product_id="p1", category="keyboard", title="机械键盘", price=699.0),
+                make_product(product_id="p2", category="monitor", title="办公显示器", price=1899.0),
+            ],
+        )
+        state.selected_plan.bundle_objective = "桌面升级方案"
+        state.selected_plan.phased_purchase_options = [
+            {"route": "一步到位", "goal": "一次买齐", "budget": 2598},
+        ]
+        state.current_workspace = orchestrator._build_plan_workspace(state)
+        session_store.create("sess_restore_ws", "user_restore_ws")
+        session_store.update_state(
+            session_id="sess_restore_ws",
+            task=state.task,
+            conversation_history=state.conversation_history,
+            workspace=state.current_workspace,
+            status="active",
+            current_step=WorkflowStep.VERIFY.value,
+            clarification_rounds_used=0,
+        )
+
+        restored = orchestrator._restore_state("sess_restore_ws")
+
+        assert restored.current_workspace is not None
+        assert restored.current_workspace.title == "桌面升级方案"
+        artifact_types = {artifact.artifact_type for artifact in restored.current_workspace.artifacts}
+        assert "action_checklist" in artifact_types
+
+    def test_feedback_acceptance_adds_phase_handoff(self, tmp_path):
+        db = SQLiteDB(db_path=":memory:")
+        session_store = SessionStore(db=db)
+        logger = BehaviorLogger(log_path=str(tmp_path / "behavior.jsonl"))
+        orchestrator = ShoppingAgentOrchestrator(
+            session_store=session_store,
+            behavior_logger=logger,
+        )
+
+        session_store.create("sess_accept", "user_accept")
+        state = AgentState(session_id="sess_accept", user_id="user_accept")
+        state.task = make_task(
+            task_id="task_accept",
+            categories=["monitor", "lamp"],
+            budget=3000.0,
+        )
+        state.user_profile = orchestrator.preference_memory.load("user_accept")
+        state.selected_plan = make_plan(
+            plan_id="plan_accept",
+            task_id="task_accept",
+            products=[
+                make_product(product_id="p1", category="monitor", title="4K 显示器", price=1999.0),
+                make_product(product_id="p2", category="lamp", title="显示器挂灯", price=299.0),
+            ],
+        )
+        state.selected_plan.bundle_objective = "显示器先行升级"
+        state.selected_plan.phased_purchase_options = [
+            {"route": "分阶段升级", "goal": "先核心件后补配件", "phase_1_slots": ["monitor"], "phase_1_budget": 1999, "phase_2_slots": ["lamp"], "phase_2_budget": 299},
+        ]
+        state.current_workspace = orchestrator._build_plan_workspace(state)
+        orchestrator._sessions["sess_accept"] = state
+
+        orchestrator.record_feedback(
+            "sess_accept",
+            FeedbackSignal.EXPLICIT_POSITIVE,
+            plan_id="plan_accept",
+            context={"accepted_route": "分阶段升级"},
+        )
+
+        assert state.current_workspace is not None
+        assert state.current_workspace.status == "accepted"
+        assert state.current_workspace.lifecycle_stage == "phase_1_accepted"
+        artifact_types = {artifact.artifact_type for artifact in state.current_workspace.artifacts}
+        assert "next_phase_handoff" in artifact_types
+
+    def test_feedback_completion_marks_workspace_completed(self, tmp_path):
+        db = SQLiteDB(db_path=":memory:")
+        session_store = SessionStore(db=db)
+        logger = BehaviorLogger(log_path=str(tmp_path / "behavior.jsonl"))
+        orchestrator = ShoppingAgentOrchestrator(
+            session_store=session_store,
+            behavior_logger=logger,
+        )
+
+        session_store.create("sess_done", "user_done")
+        state = AgentState(session_id="sess_done", user_id="user_done")
+        state.task = make_task(task_id="task_done")
+        state.user_profile = orchestrator.preference_memory.load("user_done")
+        state.selected_plan = make_plan(
+            plan_id="plan_done",
+            task_id="task_done",
+            products=[make_product(product_id="p1", category="headset", title="通勤耳机", price=999.0)],
+        )
+        state.current_workspace = orchestrator._build_plan_workspace(state)
+        orchestrator._sessions["sess_done"] = state
+
+        orchestrator.record_feedback(
+            "sess_done",
+            FeedbackSignal.TASK_COMPLETE,
+            plan_id="plan_done",
+        )
+
+        assert state.current_workspace is not None
+        assert state.current_workspace.status == "completed"
+        assert state.current_workspace.lifecycle_stage == "completed"
+        artifact_types = {artifact.artifact_type for artifact in state.current_workspace.artifacts}
+        assert "next_action" in artifact_types
+
+    def test_update_plan_status_advances_phase(self, tmp_path):
+        db = SQLiteDB(db_path=":memory:")
+        session_store = SessionStore(db=db)
+        logger = BehaviorLogger(log_path=str(tmp_path / "behavior.jsonl"))
+        orchestrator = ShoppingAgentOrchestrator(
+            session_store=session_store,
+            behavior_logger=logger,
+        )
+
+        session_store.create("sess_phase", "user_phase")
+        state = AgentState(session_id="sess_phase", user_id="user_phase")
+        state.task = make_task(task_id="task_phase", categories=["monitor", "lamp"], budget=3000.0)
+        state.user_profile = orchestrator.preference_memory.load("user_phase")
+        state.selected_plan = make_plan(
+            plan_id="plan_phase",
+            task_id="task_phase",
+            products=[
+                make_product(product_id="p1", category="monitor", title="4K 显示器", price=1999.0),
+                make_product(product_id="p2", category="lamp", title="桌面挂灯", price=299.0),
+            ],
+        )
+        state.selected_plan.bundle_objective = "显示器优先升级"
+        state.selected_plan.phased_purchase_options = [
+            {"route": "分阶段升级", "goal": "先核心件后补配件", "phase_1_slots": ["monitor"], "phase_1_budget": 1999, "phase_2_slots": ["lamp"], "phase_2_budget": 299},
+        ]
+        state.current_workspace = orchestrator._build_plan_workspace(state)
+        orchestrator._sessions["sess_phase"] = state
+
+        orchestrator.update_plan_status("sess_phase", action="accept", route="分阶段升级")
+        updated = orchestrator.update_plan_status("sess_phase", action="advance_phase")
+
+        assert updated["lifecycle_stage"] == "phase_2_ready"
+        next_action = [a for a in updated["artifacts"] if a["artifact_type"] == "next_action"]
+        assert next_action
+
+    def test_get_workspace_restores_from_store(self, tmp_path):
+        db = SQLiteDB(db_path=":memory:")
+        session_store = SessionStore(db=db)
+        logger = BehaviorLogger(log_path=str(tmp_path / "behavior.jsonl"))
+        orchestrator = ShoppingAgentOrchestrator(
+            session_store=session_store,
+            behavior_logger=logger,
+        )
+
+        session_store.create("sess_show", "user_show")
+        state = AgentState(session_id="sess_show", user_id="user_show")
+        state.task = make_task(task_id="task_show")
+        state.user_profile = orchestrator.preference_memory.load("user_show")
+        state.selected_plan = make_plan(plan_id="plan_show", task_id="task_show")
+        state.current_workspace = orchestrator._build_plan_workspace(state)
+        session_store.update_state(
+            session_id="sess_show",
+            task=state.task,
+            conversation_history=state.conversation_history,
+            workspace=state.current_workspace,
+            status="active",
+            current_step=WorkflowStep.DONE.value,
+            clarification_rounds_used=0,
+        )
+
+        workspace = orchestrator.get_workspace("sess_show")
+
+        assert workspace["workspace_id"] == "ws_sess_show"

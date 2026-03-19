@@ -32,6 +32,8 @@ from shopping_agent.common.types import (
     ConflictResolution,
     Constraint,
     ConstraintSeverity,
+    PlanArtifact,
+    PlanWorkspace,
     ShoppingTask,
     TaskRevision,
     TaskType,
@@ -45,6 +47,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     user_id                 TEXT NOT NULL,
     task_json               TEXT,
     conversation_json       TEXT NOT NULL DEFAULT '[]',
+    workspace_json          TEXT,
     status                  TEXT NOT NULL DEFAULT 'active',
     current_step            TEXT NOT NULL DEFAULT 'init',
     clarification_rounds_used INTEGER NOT NULL DEFAULT 0,
@@ -116,6 +119,29 @@ def _conversation_to_list(history: list) -> list[dict]:
     ]
 
 
+def _workspace_to_dict(workspace: Optional[PlanWorkspace]) -> Optional[dict]:
+    if workspace is None:
+        return None
+    return {
+        "workspace_id": workspace.workspace_id,
+        "title": workspace.title,
+        "status": workspace.status,
+        "objective": workspace.objective,
+        "lifecycle_stage": workspace.lifecycle_stage,
+        "updated_at": workspace.updated_at.isoformat(),
+        "artifacts": [
+            {
+                "artifact_id": artifact.artifact_id,
+                "artifact_type": artifact.artifact_type,
+                "title": artifact.title,
+                "summary": artifact.summary,
+                "content": artifact.content,
+            }
+            for artifact in workspace.artifacts
+        ],
+    }
+
+
 def _dict_to_task(data: dict) -> ShoppingTask:
     constraints = [
         Constraint(
@@ -183,6 +209,30 @@ def _list_to_conversation(history: list[dict]) -> list[ConversationTurn]:
     ]
 
 
+def _dict_to_workspace(data: dict[str, Any]) -> PlanWorkspace:
+    artifacts = [
+        PlanArtifact(
+            artifact_id=item.get("artifact_id", ""),
+            artifact_type=item.get("artifact_type", ""),
+            title=item.get("title", ""),
+            summary=item.get("summary", ""),
+            content=item.get("content", {}),
+        )
+        for item in data.get("artifacts", [])
+    ]
+    return PlanWorkspace(
+        workspace_id=data.get("workspace_id", ""),
+        title=data.get("title", ""),
+        status=data.get("status", "draft"),
+        objective=data.get("objective", ""),
+        lifecycle_stage=data.get("lifecycle_stage", "current_recommendation"),
+        updated_at=datetime.fromisoformat(
+            data.get("updated_at", datetime.now().isoformat())
+        ),
+        artifacts=artifacts,
+    )
+
+
 class SessionStore:
     """
     会话持久化存储。
@@ -199,16 +249,25 @@ class SessionStore:
         self._db = db or get_db()
         self._db.execute(_CREATE_TABLE)
         self._db.execute(_CREATE_INDEX)
+        self._ensure_workspace_column()
+
+    def _ensure_workspace_column(self) -> None:
+        columns = {
+            row["name"]
+            for row in self._db.fetchall("PRAGMA table_info(sessions)")
+        }
+        if "workspace_json" not in columns:
+            self._db.execute("ALTER TABLE sessions ADD COLUMN workspace_json TEXT")
 
     def create(self, session_id: str, user_id: str) -> None:
         """创建新会话记录。"""
         now = datetime.now().isoformat()
         self._db.execute(
             """INSERT OR IGNORE INTO sessions
-               (session_id, user_id, task_json, conversation_json,
+               (session_id, user_id, task_json, conversation_json, workspace_json,
                 status, current_step, clarification_rounds_used, created_at, updated_at)
-               VALUES (?,?,?,?,?,?,?,?,?)""",
-            (session_id, user_id, None, "[]", "active", "init", 0, now, now),
+               VALUES (?,?,?,?,?,?,?,?,?,?)""",
+            (session_id, user_id, None, "[]", None, "active", "init", 0, now, now),
         )
 
     def update_state(
@@ -216,6 +275,7 @@ class SessionStore:
         session_id: str,
         task: Any = None,
         conversation_history: Optional[list] = None,
+        workspace: Optional[PlanWorkspace] = None,
         status: str = "active",
         current_step: str = "init",
         clarification_rounds_used: int = 0,
@@ -226,13 +286,17 @@ class SessionStore:
             _conversation_to_list(conversation_history or []),
             ensure_ascii=False,
         )
+        workspace_json = (
+            json.dumps(_workspace_to_dict(workspace), ensure_ascii=False)
+            if workspace else None
+        )
         self._db.execute(
             """UPDATE sessions SET
-               task_json=?, conversation_json=?, status=?,
+               task_json=?, conversation_json=?, workspace_json=?, status=?,
                current_step=?, clarification_rounds_used=?, updated_at=?
                WHERE session_id=?""",
             (
-                task_json, conv_json, status,
+                task_json, conv_json, workspace_json, status,
                 current_step, clarification_rounds_used,
                 datetime.now().isoformat(), session_id,
             ),
@@ -251,6 +315,13 @@ class SessionStore:
                 result["task"] = _dict_to_task(json.loads(result["task_json"]))
             except (json.JSONDecodeError, KeyError, TypeError, ValueError):
                 result["task"] = None
+        if result.get("workspace_json"):
+            try:
+                result["workspace"] = _dict_to_workspace(
+                    json.loads(result["workspace_json"])
+                )
+            except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+                result["workspace"] = None
         conversation = json.loads(result.get("conversation_json") or "[]")
         result["conversation"] = _list_to_conversation(conversation)
         return result

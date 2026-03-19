@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import time
 import uuid
+from datetime import datetime
 from typing import Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -44,9 +45,9 @@ from shopping_agent.interaction.intent_parser import IntentParser
 from shopping_agent.learning.logger import BehaviorLogger
 from shopping_agent.learning.preference_updater import PreferenceUpdater
 from shopping_agent.memory.preference_memory import PreferenceMemory
+from shopping_agent.planning.bundle_planner import BundlePlanner
 from shopping_agent.planning.constraint_relaxer import ConstraintRelaxer
 from shopping_agent.planning.explainer import Explainer
-from shopping_agent.planning.planner import ConstraintAwarePlanner
 from shopping_agent.product.candidate_graph import CandidateGraphBuilder
 from shopping_agent.product.normalizer import ProductNormalizer
 from shopping_agent.retrieval.retriever import HybridRetriever
@@ -82,7 +83,7 @@ class ShoppingAgentOrchestrator:
         self.retriever = HybridRetriever()
         self.normalizer = ProductNormalizer()
         self.graph_builder = CandidateGraphBuilder()
-        self.planner = ConstraintAwarePlanner(use_rl=use_rl)
+        self.planner = BundlePlanner(use_rl=use_rl)
         self.verifier = VerificationPipeline()
         self.explainer = Explainer()
         self.behavior_logger = behavior_logger or BehaviorLogger()
@@ -155,6 +156,67 @@ class ShoppingAgentOrchestrator:
         state.feedback_records.append(record)
         self.behavior_logger.log(record)
         self.preference_updater.update(state.user_id, record)
+        self._update_workspace_from_feedback(state, signal, context or {})
+        self._persist_state(state)
+
+    def get_workspace(self, session_id: str) -> dict:
+        """读取当前会话的计划工作台。"""
+        state = self._sessions.get(session_id)
+        if state is None:
+            state = self._restore_state(session_id)
+            self._sessions[session_id] = state
+        if state.current_workspace is None:
+            raise SessionNotFoundError(f"Workspace for session {session_id} not found")
+        return self._serialize_workspace(state.current_workspace)
+
+    def update_plan_status(
+        self,
+        session_id: str,
+        action: str,
+        route: Optional[str] = None,
+    ) -> dict:
+        """
+        推进计划状态。
+
+        action:
+          - accept
+          - complete
+          - archive
+          - advance_phase
+        """
+        state = self._sessions.get(session_id)
+        if state is None:
+            state = self._restore_state(session_id)
+            self._sessions[session_id] = state
+        if state.current_workspace is None:
+            raise SessionNotFoundError(f"Workspace for session {session_id} not found")
+
+        if action == "accept":
+            self.record_feedback(
+                session_id,
+                FeedbackSignal.EXPLICIT_POSITIVE,
+                plan_id=state.selected_plan.plan_id if state.selected_plan else None,
+                context={"accepted_route": route or "一步到位"},
+            )
+        elif action == "complete":
+            self.record_feedback(
+                session_id,
+                FeedbackSignal.TASK_COMPLETE,
+                plan_id=state.selected_plan.plan_id if state.selected_plan else None,
+            )
+        elif action == "archive":
+            self.record_feedback(
+                session_id,
+                FeedbackSignal.TASK_ABANDON,
+                plan_id=state.selected_plan.plan_id if state.selected_plan else None,
+            )
+        elif action == "advance_phase":
+            self._advance_workspace_phase(state)
+            self._persist_state(state)
+        else:
+            raise ValueError(f"Unsupported plan action: {action}")
+
+        return self._serialize_workspace(state.current_workspace)
 
     # ---------------------------------------------------------------------------
     # RL 训练接口（Option A）
@@ -568,6 +630,7 @@ class ShoppingAgentOrchestrator:
             session_id=state.session_id,
             task=state.task,
             conversation_history=state.conversation_history,
+            workspace=state.current_workspace,
             status=status,
             current_step=state.current_step.value,
             clarification_rounds_used=state.clarification_rounds_used,
@@ -586,6 +649,7 @@ class ShoppingAgentOrchestrator:
         state.conversation_history = record.get("conversation", [])
         state.current_round = len(state.conversation_history)
         state.clarification_rounds_used = record.get("clarification_rounds_used", 0)
+        state.current_workspace = record.get("workspace")
         return state
 
     def _handle_graceful_error(self, state: AgentState, error: Exception) -> str:
@@ -663,6 +727,7 @@ class ShoppingAgentOrchestrator:
             "phased_purchase_score": round(plan.phased_purchase_score, 3),
             "long_term_fit_score": round(plan.long_term_fit_score, 3),
         }
+        checklist = self._build_action_checklist(plan)
         tradeoff = {
             "notes": [
                 {
@@ -708,6 +773,13 @@ class ShoppingAgentOrchestrator:
                     content=phase_plan,
                 ),
                 PlanArtifact(
+                    artifact_id=f"{plan.plan_id}_checklist",
+                    artifact_type="action_checklist",
+                    title="Action Checklist",
+                    summary="当前应买、后续可补与可选升级项",
+                    content=checklist,
+                ),
+                PlanArtifact(
                     artifact_id=f"{plan.plan_id}_tradeoff",
                     artifact_type="tradeoff_notes",
                     title="Trade-off Notes",
@@ -737,3 +809,161 @@ class ShoppingAgentOrchestrator:
                 for artifact in workspace.artifacts
             ],
         }
+
+    @staticmethod
+    def _build_action_checklist(plan: CandidatePlan) -> dict:
+        options = plan.phased_purchase_options or []
+        phased_route = next(
+            (option for option in options if option.get("route") == "分阶段升级"),
+            None,
+        )
+        immediate_slots = phased_route.get("phase_1_slots", []) if phased_route else []
+        later_slots = phased_route.get("phase_2_slots", []) if phased_route else []
+
+        buy_now = []
+        buy_later = []
+        optional_upgrades = []
+        for item in plan.items:
+            entry = {
+                "slot": item.bundle_slot,
+                "product": item.product.title,
+                "price": item.product.final_price,
+                "reason": item.reason,
+            }
+            if not phased_route or item.bundle_slot in immediate_slots:
+                buy_now.append(entry)
+            elif item.bundle_slot in later_slots:
+                buy_later.append(entry)
+            else:
+                optional_upgrades.append(entry)
+
+        if not optional_upgrades and len(options) > 1:
+            conservative = next(
+                (option for option in options if option.get("route") == "保守路线"),
+                None,
+            )
+            if conservative:
+                optional_upgrades.append(
+                    {
+                        "route": "保守路线",
+                        "goal": conservative.get("goal", ""),
+                        "budget": conservative.get("budget"),
+                    }
+                )
+
+        return {
+            "buy_now": buy_now,
+            "buy_later": buy_later,
+            "optional_upgrades": optional_upgrades,
+        }
+
+    def _update_workspace_from_feedback(
+        self,
+        state: AgentState,
+        signal: FeedbackSignal,
+        context: dict,
+    ) -> None:
+        workspace = state.current_workspace
+        if workspace is None:
+            return
+
+        workspace.updated_at = datetime.now()
+        if signal == FeedbackSignal.TASK_COMPLETE:
+            workspace.status = "completed"
+            workspace.lifecycle_stage = "completed"
+            self._upsert_workspace_artifact(
+                workspace,
+                PlanArtifact(
+                    artifact_id=f"{workspace.workspace_id}_completion",
+                    artifact_type="next_action",
+                    title="Completion Summary",
+                    summary="当前购买计划已完成，可进入后续复盘或下一阶段升级。",
+                    content={
+                        "status": "completed",
+                        "next_step": "review_or_upgrade",
+                    },
+                ),
+            )
+            return
+
+        if signal == FeedbackSignal.EXPLICIT_POSITIVE:
+            accepted_route = context.get("accepted_route", "一步到位")
+            workspace.status = "accepted"
+            workspace.lifecycle_stage = (
+                "phase_1_accepted" if accepted_route == "分阶段升级" else "accepted"
+            )
+            if accepted_route == "分阶段升级":
+                next_phase = self._build_next_phase_handoff(state.selected_plan)
+                if next_phase:
+                    self._upsert_workspace_artifact(
+                        workspace,
+                        PlanArtifact(
+                            artifact_id=f"{workspace.workspace_id}_next_phase",
+                            artifact_type="next_phase_handoff",
+                            title="Next Phase Handoff",
+                            summary="当前已接受 Phase 1，保留下一阶段升级位。",
+                            content=next_phase,
+                        ),
+                    )
+            return
+
+        if signal == FeedbackSignal.TASK_ABANDON:
+            workspace.status = "archived"
+            workspace.lifecycle_stage = "abandoned"
+
+    @staticmethod
+    def _build_next_phase_handoff(plan: Optional[CandidatePlan]) -> Optional[dict]:
+        if plan is None:
+            return None
+        phased_route = next(
+            (
+                option for option in plan.phased_purchase_options
+                if option.get("route") == "分阶段升级"
+            ),
+            None,
+        )
+        if not phased_route:
+            return None
+        return {
+            "accepted_route": "分阶段升级",
+            "phase_1_slots": phased_route.get("phase_1_slots", []),
+            "phase_1_budget": phased_route.get("phase_1_budget"),
+            "phase_2_slots": phased_route.get("phase_2_slots", []),
+            "phase_2_budget": phased_route.get("phase_2_budget"),
+        }
+
+    @staticmethod
+    def _upsert_workspace_artifact(
+        workspace: PlanWorkspace,
+        artifact: PlanArtifact,
+    ) -> None:
+        for index, existing in enumerate(workspace.artifacts):
+            if existing.artifact_type == artifact.artifact_type:
+                workspace.artifacts[index] = artifact
+                return
+        workspace.artifacts.append(artifact)
+
+    def _advance_workspace_phase(self, state: AgentState) -> None:
+        workspace = state.current_workspace
+        if workspace is None:
+            return
+
+        workspace.updated_at = datetime.now()
+        if workspace.lifecycle_stage == "phase_1_accepted":
+            workspace.lifecycle_stage = "phase_2_ready"
+            workspace.status = "active"
+            next_phase = self._build_next_phase_handoff(state.selected_plan) or {}
+            self._upsert_workspace_artifact(
+                workspace,
+                PlanArtifact(
+                    artifact_id=f"{workspace.workspace_id}_phase2",
+                    artifact_type="next_action",
+                    title="Phase 2 Ready",
+                    summary="当前已可进入下一阶段升级。",
+                    content={
+                        "status": "phase_2_ready",
+                        "next_slots": next_phase.get("phase_2_slots", []),
+                        "next_budget": next_phase.get("phase_2_budget"),
+                    },
+                ),
+            )

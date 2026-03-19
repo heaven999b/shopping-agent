@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import time
+import copy
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
@@ -181,6 +182,7 @@ class BenchmarkRunner:
         disable_graph: bool = False,
         disable_verifier: bool = False,
         disable_clarification: bool = False,
+        baseline_profile: Optional[str] = None,
     ):
         self.orchestrator = ShoppingAgentOrchestrator(use_rl=use_rl)
         self.user_id = user_id
@@ -194,6 +196,7 @@ class BenchmarkRunner:
         self._disable_graph = disable_graph
         self._disable_verifier = disable_verifier
         self._disable_clarification = disable_clarification
+        self._baseline_profile = baseline_profile or "full_agent"
 
     def run(
         self,
@@ -224,6 +227,7 @@ class BenchmarkRunner:
             "timestamp": datetime.now().isoformat(),
             "mode": "rl" if self._use_rl else "heuristic",
             "benchmark_mode": self._benchmark_mode,
+            "baseline_profile": self._baseline_profile,
             "num_tasks": len(results),
             "metrics": metrics,
             "per_task": per_task,
@@ -244,6 +248,7 @@ class BenchmarkRunner:
         if self._benchmark_mode == "e2e":
             return self._run_single_task_e2e(raw, verbose=verbose)
 
+        raw = self._apply_baseline_profile(raw)
         task_id = raw["task_id"]
         query = raw["query"]
         expected = raw.get("expected", {})
@@ -273,6 +278,7 @@ class BenchmarkRunner:
                     state.user_profile or UserProfile(user_id=self.user_id),
                     raw["user_profile_overrides"],
                 )
+            state.user_profile = self._apply_profile_baseline_profile(state.user_profile)
 
             # 检索
             state.transition(WorkflowStep.RETRIEVE)
@@ -385,6 +391,7 @@ class BenchmarkRunner:
         return result
 
     def _run_single_task_e2e(self, raw: dict, verbose: bool = True) -> TaskResult:
+        raw = self._apply_baseline_profile(raw)
         task_id = raw["task_id"]
         query = raw["query"]
         expected = raw.get("expected", {})
@@ -417,6 +424,7 @@ class BenchmarkRunner:
                     state.user_profile or UserProfile(user_id=self.user_id),
                     raw["user_profile_overrides"],
                 )
+            state.user_profile = self._apply_profile_baseline_profile(state.user_profile)
 
             result = self._populate_result_from_state(
                 result=result,
@@ -451,6 +459,49 @@ class BenchmarkRunner:
             )
 
         return result
+
+    def _apply_baseline_profile(self, raw: dict[str, Any]) -> dict[str, Any]:
+        if self._baseline_profile == "full_agent":
+            return raw
+
+        profiled = copy.deepcopy(raw)
+        if self._baseline_profile == "single_item":
+            categories = profiled.get("categories", [])
+            if categories:
+                profiled["categories"] = categories[:1]
+            profiled["task_type"] = "single"
+        return profiled
+
+    def _apply_profile_baseline_profile(
+        self,
+        profile: Optional[UserProfile],
+    ) -> Optional[UserProfile]:
+        if profile is None:
+            return profile
+        if self._baseline_profile == "full_agent":
+            return profile
+
+        if self._baseline_profile in {"naive_retrieval", "constraint_only"}:
+            profile.identity_goal = {}
+            profile.budget_sensitivity_profile = {}
+            profile.brand_orientation = {}
+            profile.aesthetic_preference = {}
+            profile.persona_stability = 0.5
+            profile.recent_persona_drift = {}
+            profile.persona_transition_log = []
+            profile.owned_items = []
+            profile.active_setups = {}
+            profile.upgrade_stage = {}
+            profile.purchase_rhythm = {}
+            profile.aspiration_signals = []
+
+        if self._baseline_profile == "naive_retrieval":
+            profile.brand_weights = {}
+            profile.platform_preferences = {}
+            profile.category_affinity = {}
+            profile.style_tags = []
+
+        return profile
 
     def _populate_result_from_state(
         self,
@@ -641,7 +692,7 @@ class BenchmarkRunner:
         return "都可以"
 
     def save_report(self, report: dict[str, Any], filename: Optional[str] = None) -> Path:
-        """保存评测报告为 JSON 文件。"""
+        """保存评测报告，并附带 summary / flat metrics 产物。"""
         if filename is None:
             ts = datetime.now().strftime("%Y%m%d_%H%M%S")
             mode = report.get("mode", "heuristic")
@@ -650,6 +701,28 @@ class BenchmarkRunner:
         path = self.output_dir / filename
         with open(path, "w", encoding="utf-8") as f:
             json.dump(report, f, ensure_ascii=False, indent=2)
+
+        stem = path.stem
+        summary_path = self.output_dir / f"{stem}_summary.json"
+        flat_metrics_path = self.output_dir / f"{stem}_metrics.json"
+        per_task_path = self.output_dir / f"{stem}_per_task.json"
+
+        summary = {
+            "report_schema_version": report.get("report_schema_version", "v2"),
+            "run_id": report.get("run_id"),
+            "timestamp": report.get("timestamp"),
+            "mode": report.get("mode"),
+            "benchmark_mode": report.get("benchmark_mode"),
+            "num_tasks": report.get("num_tasks"),
+            "summary_metrics": report.get("metrics", {}),
+        }
+        with open(summary_path, "w", encoding="utf-8") as f:
+            json.dump(summary, f, ensure_ascii=False, indent=2)
+        with open(flat_metrics_path, "w", encoding="utf-8") as f:
+            json.dump(report.get("metrics", {}), f, ensure_ascii=False, indent=2)
+        with open(per_task_path, "w", encoding="utf-8") as f:
+            json.dump(report.get("per_task", []), f, ensure_ascii=False, indent=2)
+
         print(f"报告已保存: {path}")
         return path
 

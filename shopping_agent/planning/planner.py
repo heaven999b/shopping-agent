@@ -37,6 +37,7 @@ from shopping_agent.common.constants import (
 )
 from shopping_agent.common.exceptions import InfeasibleConstraintError, PlanningError
 from shopping_agent.common.types import (
+    BundlePlan,
     CandidatePlan,
     PlanItem,
     Product,
@@ -87,7 +88,7 @@ class ConstraintAwarePlanner:
         candidate_graph: dict[str, list[dict[str, Any]]],
         user_profile: Optional[UserProfile] = None,
         retrieved_products: Optional[list[Product]] = None,
-    ) -> list[CandidatePlan]:
+    ) -> list[BundlePlan]:
         """
         生成多套候选方案，按综合得分降序返回。
 
@@ -155,7 +156,7 @@ class ConstraintAwarePlanner:
         slot_candidates: dict[str, list[Product]],
         budget: Optional[float],
         user_profile: Optional[UserProfile],
-    ) -> list[CandidatePlan]:
+    ) -> list[BundlePlan]:
         """
         生成三档方案：
           Tier 0 — 主推方案：综合得分最高
@@ -198,7 +199,7 @@ class ConstraintAwarePlanner:
         user_profile: Optional[UserProfile],
         strategy: str,
         tier_name: str,
-    ) -> Optional[CandidatePlan]:
+    ) -> Optional[BundlePlan]:
         """
         按指定策略为每个坑位选一个商品，组合为一套方案。
         """
@@ -251,6 +252,8 @@ class ConstraintAwarePlanner:
         style_coherence = self._style_coherence_score(items)
         scenario_fit = self._scenario_fit_score(task, items, user_profile)
         bundle_completeness = self._bundle_completeness_score(task, items)
+        slot_coverage = self._slot_coverage(task, items)
+        compatibility_score = self._compatibility_score(items)
         budget_allocation = self._budget_allocation(items, budget)
         phased_options = self._build_phased_purchase_options(
             task, items, budget, user_profile
@@ -279,7 +282,7 @@ class ConstraintAwarePlanner:
             )
         )
 
-        return CandidatePlan(
+        return BundlePlan(
             plan_id=str(uuid.uuid4()),
             task_id=task.task_id,
             items=items,
@@ -292,6 +295,8 @@ class ConstraintAwarePlanner:
             style_coherence_score=round(style_coherence, 3),
             scenario_fit_score=round(scenario_fit, 3),
             bundle_completeness_score=round(bundle_completeness, 3),
+            slot_coverage=slot_coverage,
+            compatibility_score=round(compatibility_score, 3),
             long_term_fit_score=round(long_term_fit, 3),
             phased_purchase_score=round(phased_purchase_score, 3),
             tradeoff_notes=tradeoff_notes,
@@ -303,6 +308,7 @@ class ConstraintAwarePlanner:
             bundle_objective=self._bundle_objective(task),
             budget_allocation=budget_allocation,
             phased_purchase_options=phased_options,
+            phased_upgrade_plan=phased_options,
         )
 
     def _select_product(
@@ -366,7 +372,7 @@ class ConstraintAwarePlanner:
         slot_candidates: dict[str, list[Product]],
         budget: Optional[float],
         user_profile: Optional[UserProfile],
-    ) -> list[CandidatePlan]:
+    ) -> list[BundlePlan]:
         """用 RL 策略生成一套最优方案，并附加启发式 backup 方案。"""
         budget = budget or 5000.0
         per_slot_budget = budget / max(len(task.categories), 1)
@@ -537,7 +543,7 @@ class ConstraintAwarePlanner:
         budget: float,
         tier_name: str,
         user_profile: Optional[UserProfile] = None,
-    ) -> Optional[CandidatePlan]:
+    ) -> Optional[BundlePlan]:
         total = sum(i.product.final_price for i in items)
         if not items:
             return None
@@ -552,6 +558,8 @@ class ConstraintAwarePlanner:
         style_coherence = self._style_coherence_score(items)
         scenario_fit = self._scenario_fit_score(task, items, user_profile)
         bundle_completeness = self._bundle_completeness_score(task, items)
+        slot_coverage = self._slot_coverage(task, items)
+        compatibility_score = self._compatibility_score(items)
         budget_allocation = self._budget_allocation(items, budget)
         phased_options = self._build_phased_purchase_options(
             task, items, budget, user_profile
@@ -560,7 +568,7 @@ class ConstraintAwarePlanner:
         phased_purchase_score = self._phased_purchase_score(
             phased_options, total, budget, user_profile
         )
-        return CandidatePlan(
+        return BundlePlan(
             plan_id=str(uuid.uuid4()),
             task_id=task.task_id,
             items=items,
@@ -573,6 +581,8 @@ class ConstraintAwarePlanner:
             style_coherence_score=round(style_coherence, 3),
             scenario_fit_score=round(scenario_fit, 3),
             bundle_completeness_score=round(bundle_completeness, 3),
+            slot_coverage=slot_coverage,
+            compatibility_score=round(compatibility_score, 3),
             long_term_fit_score=round(long_term_fit, 3),
             phased_purchase_score=round(phased_purchase_score, 3),
             tradeoff_notes=self._build_tradeoff_notes(
@@ -591,6 +601,7 @@ class ConstraintAwarePlanner:
             bundle_objective=self._bundle_objective(task),
             budget_allocation=budget_allocation,
             phased_purchase_options=phased_options,
+            phased_upgrade_plan=phased_options,
         )
 
     @staticmethod
@@ -738,6 +749,33 @@ class ConstraintAwarePlanner:
         if len(task.categories) > 1:
             return f"为{ '、'.join(task.categories) }做组合补齐"
         return f"为{task.categories[0] if task.categories else '当前需求'}选择最合适单品"
+
+    @staticmethod
+    def _slot_coverage(task: ShoppingTask, items: list[PlanItem]) -> dict[str, bool]:
+        filled_slots = {item.bundle_slot for item in items}
+        return {category: category in filled_slots for category in task.categories}
+
+    @staticmethod
+    def _compatibility_score(items: list[PlanItem]) -> float:
+        if len(items) <= 1:
+            return 1.0
+
+        slot_count = len({item.bundle_slot for item in items})
+        product_count = len({item.product.product_id for item in items})
+        slot_ratio = slot_count / max(len(items), 1)
+        product_ratio = product_count / max(len(items), 1)
+
+        delivery_days = [
+            item.product.logistics.delivery_days
+            for item in items
+            if item.product.logistics and item.product.logistics.delivery_days is not None
+        ]
+        delivery_score = 1.0
+        if len(delivery_days) >= 2:
+            spread = max(delivery_days) - min(delivery_days)
+            delivery_score = max(0.5, 1.0 - spread * 0.08)
+
+        return min(1.0, 0.45 * slot_ratio + 0.35 * product_ratio + 0.2 * delivery_score)
 
     @staticmethod
     def _budget_allocation(items: list[PlanItem], budget: float) -> dict[str, float]:

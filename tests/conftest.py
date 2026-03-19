@@ -12,6 +12,7 @@ from datetime import datetime
 import pytest
 
 from shopping_agent.common.types import (
+    BundlePlan,
     CandidatePlan,
     Constraint,
     ConstraintSeverity,
@@ -228,7 +229,7 @@ def user_profile() -> UserProfile:
 
 
 # ---------------------------------------------------------------------------
-# CandidatePlan 工厂
+# BundlePlan / CandidatePlan 工厂
 # ---------------------------------------------------------------------------
 
 def make_plan(
@@ -236,7 +237,7 @@ def make_plan(
     task_id: str = "t001",
     products: list[Product] | None = None,
     total_price: float | None = None,
-) -> CandidatePlan:
+) -> BundlePlan:
     if products is None:
         products = [make_product()]
     items = [
@@ -244,7 +245,7 @@ def make_plan(
         for p in products
     ]
     tp = total_price if total_price is not None else sum(p.final_price for p in products)
-    return CandidatePlan(
+    return BundlePlan(
         plan_id=plan_id,
         task_id=task_id,
         items=items,
@@ -252,15 +253,17 @@ def make_plan(
         constraint_score=0.9,
         preference_score=0.8,
         value_score=0.75,
+        slot_coverage={p.category: True for p in products},
+        compatibility_score=1.0,
     )
 
 
 @pytest.fixture
-def plan_within_budget(product_headset) -> CandidatePlan:
+def plan_within_budget(product_headset) -> BundlePlan:
     return make_plan(plan_id="plan001", products=[product_headset])
 
 
 @pytest.fixture
-def plan_over_budget() -> CandidatePlan:
+def plan_over_budget() -> BundlePlan:
     expensive = make_product(product_id="p_exp", price=9999.0)
     return make_plan(plan_id="plan002", products=[expensive], total_price=9999.0)
