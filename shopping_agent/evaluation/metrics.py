@@ -51,6 +51,7 @@ class TaskResult:
 
     # 图修复标记
     graph_recovery_used: bool = False  # 此任务是否触发了图修复
+    verifier_skipped: bool = False     # 消融实验中跳过了 verifier
 
     # 方案明细（用于 per-item 分析）
     plan_items: list[dict] = field(default_factory=list)

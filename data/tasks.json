@@ -9,166 +9,1207 @@
       "noise_cancelling": {"value": true, "severity": "hard"}
     },
     "uncertainty_slots": {},
+    "ambiguity_level": 0.0,
+    "clarification_needed": false,
+    "task_difficulty": "easy",
     "expected": {
+      "feasible": true,
       "min_results": 1,
       "budget_satisfied": true,
-      "required_attrs": ["noise_cancelling"]
+      "required_attrs": ["noise_cancelling"],
+      "acceptable_budget_range": [0, 2000],
+      "forbidden_violations": ["budget_exceed", "noise_cancelling_missing"],
+      "gold_categories": ["headset"]
     }
   },
   {
     "task_id": "t002",
-    "query": "配一套桌面办公套装，显示器+键盘+鼠标，总预算4000",
-    "task_type": "bundle",
-    "categories": ["monitor", "keyboard", "mouse"],
-    "constraints": {
-      "budget_total": {"value": 4000.0, "severity": "hard"}
-    },
-    "uncertainty_slots": {
-      "usage_scenario": "uncertain"
-    },
-    "expected": {
-      "min_results": 1,
-      "budget_satisfied": true,
-      "required_attrs": []
-    }
-  },
-  {
-    "task_id": "t003",
-    "query": "我要买一台轻薄笔记本，出差用，重量1.5kg以内，预算6000",
-    "task_type": "single",
-    "categories": ["laptop"],
-    "constraints": {
-      "budget_total": {"value": 6000.0, "severity": "hard"},
-      "weight_kg_max": {"value": 1.5, "severity": "hard"}
-    },
-    "uncertainty_slots": {
-      "brand_preference": "uncertain"
-    },
-    "expected": {
-      "min_results": 1,
-      "budget_satisfied": true,
-      "required_attrs": []
-    }
-  },
-  {
-    "task_id": "t004",
-    "query": "帮我配一套完整的居家办公桌搭，显示器+键盘+鼠标+台灯+椅子，预算8000",
-    "task_type": "bundle",
-    "categories": ["monitor", "keyboard", "mouse", "desk_lamp", "chair"],
-    "constraints": {
-      "budget_total": {"value": 8000.0, "severity": "hard"}
-    },
-    "uncertainty_slots": {
-      "brand_preference": "uncertain",
-      "color": "uncertain"
-    },
-    "expected": {
-      "min_results": 1,
-      "budget_satisfied": true,
-      "required_attrs": []
-    }
-  },
-  {
-    "task_id": "t005",
-    "query": "买一把人体工学椅，久坐舒适，价格不超过2000",
-    "task_type": "single",
-    "categories": ["chair"],
-    "constraints": {
-      "budget_total": {"value": 2000.0, "severity": "hard"},
-      "adjustable_lumbar": {"value": true, "severity": "soft"}
-    },
-    "uncertainty_slots": {},
-    "expected": {
-      "min_results": 1,
-      "budget_satisfied": true,
-      "required_attrs": []
-    }
-  },
-  {
-    "task_id": "t006",
-    "query": "想买一个2K以上高刷新率显示器打游戏用，预算2500",
+    "query": "需要一款27寸显示器，预算2500",
     "task_type": "single",
     "categories": ["monitor"],
     "constraints": {
       "budget_total": {"value": 2500.0, "severity": "hard"},
-      "refresh_rate_hz_min": {"value": 120, "severity": "hard"}
+      "screen_size_inch": {"value": 27, "severity": "hard"}
     },
-    "uncertainty_slots": {
-      "screen_size_preference": "uncertain"
-    },
+    "uncertainty_slots": {},
+    "ambiguity_level": 0.0,
+    "clarification_needed": false,
+    "task_difficulty": "easy",
     "expected": {
+      "feasible": true,
       "min_results": 1,
       "budget_satisfied": true,
-      "required_attrs": []
+      "required_attrs": ["screen_size_inch"],
+      "acceptable_budget_range": [0, 2500],
+      "forbidden_violations": ["budget_exceed"],
+      "gold_categories": ["monitor"]
+    }
+  },
+  {
+    "task_id": "t003",
+    "query": "想要一把机械键盘，预算800以内，最好是无线的",
+    "task_type": "single",
+    "categories": ["keyboard"],
+    "constraints": {
+      "budget_total": {"value": 800.0, "severity": "hard"},
+      "mechanical": {"value": true, "severity": "hard"},
+      "wireless": {"value": true, "severity": "soft"}
+    },
+    "uncertainty_slots": {},
+    "ambiguity_level": 0.0,
+    "clarification_needed": false,
+    "task_difficulty": "easy",
+    "expected": {
+      "feasible": true,
+      "min_results": 1,
+      "budget_satisfied": true,
+      "required_attrs": ["mechanical"],
+      "acceptable_budget_range": [0, 800],
+      "forbidden_violations": ["budget_exceed", "mechanical_missing"],
+      "gold_categories": ["keyboard"]
+    }
+  },
+  {
+    "task_id": "t004",
+    "query": "买个鼠标，越便宜越好，预算100",
+    "task_type": "single",
+    "categories": ["mouse"],
+    "constraints": {
+      "budget_total": {"value": 100.0, "severity": "hard"}
+    },
+    "uncertainty_slots": {},
+    "ambiguity_level": 0.0,
+    "clarification_needed": false,
+    "task_difficulty": "easy",
+    "expected": {
+      "feasible": true,
+      "min_results": 1,
+      "budget_satisfied": true,
+      "required_attrs": [],
+      "acceptable_budget_range": [0, 100],
+      "forbidden_violations": ["budget_exceed"],
+      "gold_categories": ["mouse"]
+    }
+  },
+  {
+    "task_id": "t005",
+    "query": "买台轻薄笔记本，预算5000，用来办公",
+    "task_type": "single",
+    "categories": ["laptop"],
+    "constraints": {
+      "budget_total": {"value": 5000.0, "severity": "hard"}
+    },
+    "uncertainty_slots": {},
+    "ambiguity_level": 0.0,
+    "clarification_needed": false,
+    "task_difficulty": "easy",
+    "expected": {
+      "feasible": true,
+      "min_results": 1,
+      "budget_satisfied": true,
+      "required_attrs": [],
+      "acceptable_budget_range": [0, 5000],
+      "forbidden_violations": ["budget_exceed"],
+      "gold_categories": ["laptop"]
+    }
+  },
+  {
+    "task_id": "t006",
+    "query": "需要一把人体工学椅，预算2500",
+    "task_type": "single",
+    "categories": ["chair"],
+    "constraints": {
+      "budget_total": {"value": 2500.0, "severity": "hard"},
+      "adjustable_lumbar": {"value": true, "severity": "soft"}
+    },
+    "uncertainty_slots": {},
+    "ambiguity_level": 0.0,
+    "clarification_needed": false,
+    "task_difficulty": "easy",
+    "expected": {
+      "feasible": true,
+      "min_results": 1,
+      "budget_satisfied": true,
+      "required_attrs": [],
+      "acceptable_budget_range": [0, 2500],
+      "forbidden_violations": ["budget_exceed"],
+      "gold_categories": ["chair"]
     }
   },
   {
     "task_id": "t007",
-    "query": "需要一个无线机械键盘，预算600以内，要RGB",
+    "query": "降噪耳机，预算1000，小米也可以",
     "task_type": "single",
-    "categories": ["keyboard"],
+    "categories": ["headset"],
     "constraints": {
-      "budget_total": {"value": 600.0, "severity": "hard"},
-      "wireless": {"value": true, "severity": "hard"},
-      "mechanical": {"value": true, "severity": "hard"},
-      "rgb": {"value": true, "severity": "soft"}
+      "budget_total": {"value": 1000.0, "severity": "hard"},
+      "noise_cancelling": {"value": true, "severity": "hard"}
     },
-    "uncertainty_slots": {
-      "switch_type": "uncertain"
-    },
+    "uncertainty_slots": {},
+    "ambiguity_level": 0.1,
+    "clarification_needed": false,
+    "task_difficulty": "medium",
     "expected": {
+      "feasible": true,
       "min_results": 1,
       "budget_satisfied": true,
-      "required_attrs": ["wireless", "mechanical"]
+      "required_attrs": ["noise_cancelling"],
+      "acceptable_budget_range": [0, 1000],
+      "forbidden_violations": ["budget_exceed", "noise_cancelling_missing"],
+      "gold_categories": ["headset"]
     }
   },
   {
     "task_id": "t008",
-    "query": "帮我买一台MacBook，不超过一万",
+    "query": "4K显示器，预算2500以内，27寸",
     "task_type": "single",
-    "categories": ["laptop"],
+    "categories": ["monitor"],
     "constraints": {
-      "budget_total": {"value": 10000.0, "severity": "hard"},
-      "brand": {"value": "Apple", "severity": "hard"}
+      "budget_total": {"value": 2500.0, "severity": "hard"},
+      "resolution": {"value": "3840x2160", "severity": "hard"},
+      "screen_size_inch": {"value": 27, "severity": "soft"}
     },
     "uncertainty_slots": {},
+    "ambiguity_level": 0.0,
+    "clarification_needed": false,
+    "task_difficulty": "medium",
     "expected": {
+      "feasible": true,
       "min_results": 1,
       "budget_satisfied": true,
-      "required_attrs": []
+      "required_attrs": ["resolution"],
+      "acceptable_budget_range": [0, 2500],
+      "forbidden_violations": ["budget_exceed"],
+      "gold_categories": ["monitor"]
     }
   },
   {
     "task_id": "t009",
-    "query": "给我推荐一套电竞外设，鼠标+键盘+耳机，预算1500",
-    "task_type": "bundle",
-    "categories": ["mouse", "keyboard", "headset"],
+    "query": "无线机械键盘，预算700，要RGB",
+    "task_type": "single",
+    "categories": ["keyboard"],
     "constraints": {
-      "budget_total": {"value": 1500.0, "severity": "hard"}
+      "budget_total": {"value": 700.0, "severity": "hard"},
+      "wireless": {"value": true, "severity": "hard"},
+      "mechanical": {"value": true, "severity": "hard"},
+      "rgb": {"value": true, "severity": "soft"}
     },
-    "uncertainty_slots": {
-      "brand_preference": "uncertain"
-    },
+    "uncertainty_slots": {},
+    "ambiguity_level": 0.0,
+    "clarification_needed": false,
+    "task_difficulty": "medium",
     "expected": {
+      "feasible": true,
       "min_results": 1,
       "budget_satisfied": true,
-      "required_attrs": []
+      "required_attrs": ["wireless", "mechanical"],
+      "acceptable_budget_range": [0, 700],
+      "forbidden_violations": ["budget_exceed", "wireless_missing", "mechanical_missing"],
+      "gold_categories": ["keyboard"]
     }
   },
   {
     "task_id": "t010",
-    "query": "预算500以内的降噪耳机，越便宜越好",
+    "query": "游戏鼠标，DPI要高，预算500",
+    "task_type": "single",
+    "categories": ["mouse"],
+    "constraints": {
+      "budget_total": {"value": 500.0, "severity": "hard"}
+    },
+    "uncertainty_slots": {},
+    "ambiguity_level": 0.1,
+    "clarification_needed": false,
+    "task_difficulty": "medium",
+    "expected": {
+      "feasible": true,
+      "min_results": 1,
+      "budget_satisfied": true,
+      "required_attrs": [],
+      "acceptable_budget_range": [0, 500],
+      "forbidden_violations": ["budget_exceed"],
+      "gold_categories": ["mouse"]
+    }
+  },
+  {
+    "task_id": "t011",
+    "query": "编程用笔记本，预算6000，内存16G以上",
+    "task_type": "single",
+    "categories": ["laptop"],
+    "constraints": {
+      "budget_total": {"value": 6000.0, "severity": "hard"},
+      "ram_gb": {"value": 16, "severity": "hard"}
+    },
+    "uncertainty_slots": {},
+    "ambiguity_level": 0.1,
+    "clarification_needed": false,
+    "task_difficulty": "medium",
+    "expected": {
+      "feasible": true,
+      "min_results": 1,
+      "budget_satisfied": true,
+      "required_attrs": ["ram_gb"],
+      "acceptable_budget_range": [0, 6000],
+      "forbidden_violations": ["budget_exceed"],
+      "gold_categories": ["laptop"]
+    }
+  },
+  {
+    "task_id": "t012",
+    "query": "电动升降桌，预算2000以内",
+    "task_type": "single",
+    "categories": ["desk"],
+    "constraints": {
+      "budget_total": {"value": 2000.0, "severity": "hard"},
+      "motorized": {"value": true, "severity": "hard"}
+    },
+    "uncertainty_slots": {},
+    "ambiguity_level": 0.0,
+    "clarification_needed": false,
+    "task_difficulty": "medium",
+    "expected": {
+      "feasible": true,
+      "min_results": 1,
+      "budget_satisfied": true,
+      "required_attrs": ["motorized"],
+      "acceptable_budget_range": [0, 2000],
+      "forbidden_violations": ["budget_exceed", "motorized_missing"],
+      "gold_categories": ["desk"]
+    }
+  },
+  {
+    "task_id": "t013",
+    "query": "Sony或Bose耳机，预算2300，需要主动降噪",
     "task_type": "single",
     "categories": ["headset"],
     "constraints": {
-      "budget_total": {"value": 500.0, "severity": "hard"},
+      "budget_total": {"value": 2300.0, "severity": "hard"},
+      "noise_cancelling": {"value": true, "severity": "hard"},
+      "brand": {"value": ["Sony", "Bose"], "severity": "soft"}
+    },
+    "uncertainty_slots": {},
+    "ambiguity_level": 0.0,
+    "clarification_needed": false,
+    "task_difficulty": "hard",
+    "expected": {
+      "feasible": true,
+      "min_results": 1,
+      "budget_satisfied": true,
+      "required_attrs": ["noise_cancelling"],
+      "acceptable_budget_range": [2000, 2300],
+      "forbidden_violations": ["budget_exceed", "noise_cancelling_missing"],
+      "gold_categories": ["headset"]
+    }
+  },
+  {
+    "task_id": "t014",
+    "query": "27寸显示器，预算2000以内",
+    "task_type": "single",
+    "categories": ["monitor"],
+    "constraints": {
+      "budget_total": {"value": 2000.0, "severity": "hard"},
+      "screen_size_inch": {"value": 27, "severity": "hard"}
+    },
+    "uncertainty_slots": {},
+    "ambiguity_level": 0.0,
+    "clarification_needed": false,
+    "task_difficulty": "hard",
+    "expected": {
+      "feasible": true,
+      "min_results": 1,
+      "budget_satisfied": true,
+      "required_attrs": ["screen_size_inch"],
+      "acceptable_budget_range": [1999, 2000],
+      "forbidden_violations": ["budget_exceed"],
+      "gold_categories": ["monitor"]
+    }
+  },
+  {
+    "task_id": "t015",
+    "query": "笔记本，预算3000",
+    "task_type": "single",
+    "categories": ["laptop"],
+    "constraints": {
+      "budget_total": {"value": 3000.0, "severity": "hard"}
+    },
+    "uncertainty_slots": {},
+    "ambiguity_level": 0.0,
+    "clarification_needed": false,
+    "task_difficulty": "hard",
+    "expected": {
+      "feasible": false,
+      "min_results": 0,
+      "budget_satisfied": false,
+      "required_attrs": [],
+      "acceptable_budget_range": [3999, 5000],
+      "forbidden_violations": [],
+      "gold_categories": ["laptop"],
+      "expect_relaxation": true,
+      "relaxation_hint": "budget_relax_min_3999"
+    }
+  },
+  {
+    "task_id": "t016",
+    "query": "Herman Miller椅子，预算8000",
+    "task_type": "single",
+    "categories": ["chair"],
+    "constraints": {
+      "budget_total": {"value": 8000.0, "severity": "hard"},
+      "brand": {"value": "Herman Miller", "severity": "hard"}
+    },
+    "uncertainty_slots": {},
+    "ambiguity_level": 0.0,
+    "clarification_needed": false,
+    "task_difficulty": "hard",
+    "expected": {
+      "feasible": false,
+      "min_results": 0,
+      "budget_satisfied": false,
+      "required_attrs": [],
+      "acceptable_budget_range": [11999, 15000],
+      "forbidden_violations": [],
+      "gold_categories": ["chair"],
+      "expect_relaxation": true,
+      "relaxation_hint": "budget_relax_or_drop_brand"
+    }
+  },
+  {
+    "task_id": "t017",
+    "query": "想买个耳机",
+    "task_type": "single",
+    "categories": ["headset"],
+    "constraints": {},
+    "uncertainty_slots": {
+      "budget_total": null,
+      "usage_scenario": null,
+      "noise_cancelling": null
+    },
+    "ambiguity_level": 0.9,
+    "clarification_needed": true,
+    "task_difficulty": "easy",
+    "expected": {
+      "feasible": true,
+      "min_results": 1,
+      "budget_satisfied": true,
+      "required_attrs": [],
+      "acceptable_budget_range": [0, 99999],
+      "forbidden_violations": [],
+      "gold_categories": ["headset"]
+    }
+  },
+  {
+    "task_id": "t018",
+    "query": "需要一个用于设计工作的显示器",
+    "task_type": "single",
+    "categories": ["monitor"],
+    "constraints": {},
+    "uncertainty_slots": {
+      "budget_total": null,
+      "resolution": null
+    },
+    "ambiguity_level": 0.6,
+    "clarification_needed": true,
+    "task_difficulty": "easy",
+    "expected": {
+      "feasible": true,
+      "min_results": 1,
+      "budget_satisfied": true,
+      "required_attrs": [],
+      "acceptable_budget_range": [0, 99999],
+      "forbidden_violations": [],
+      "gold_categories": ["monitor"]
+    }
+  },
+  {
+    "task_id": "t019",
+    "query": "要一个无线键盘，预算1000",
+    "task_type": "single",
+    "categories": ["keyboard"],
+    "constraints": {
+      "budget_total": {"value": 1000.0, "severity": "hard"},
+      "wireless": {"value": true, "severity": "hard"}
+    },
+    "uncertainty_slots": {},
+    "ambiguity_level": 0.2,
+    "clarification_needed": false,
+    "task_difficulty": "easy",
+    "expected": {
+      "feasible": true,
+      "min_results": 1,
+      "budget_satisfied": true,
+      "required_attrs": ["wireless"],
+      "acceptable_budget_range": [0, 1000],
+      "forbidden_violations": ["budget_exceed", "wireless_missing"],
+      "gold_categories": ["keyboard"]
+    }
+  },
+  {
+    "task_id": "t020",
+    "query": "买个椅子，不知道要什么价位，就是要坐得舒服",
+    "task_type": "single",
+    "categories": ["chair"],
+    "constraints": {},
+    "uncertainty_slots": {
+      "budget_total": null,
+      "adjustable_lumbar": null
+    },
+    "ambiguity_level": 0.8,
+    "clarification_needed": true,
+    "task_difficulty": "easy",
+    "expected": {
+      "feasible": true,
+      "min_results": 1,
+      "budget_satisfied": true,
+      "required_attrs": [],
+      "acceptable_budget_range": [0, 99999],
+      "forbidden_violations": [],
+      "gold_categories": ["chair"]
+    }
+  },
+  {
+    "task_id": "t021",
+    "query": "帮我配个桌搭三件套：显示器+键盘+鼠标，总预算2000",
+    "task_type": "bundle",
+    "categories": ["monitor", "keyboard", "mouse"],
+    "constraints": {
+      "budget_total": {"value": 2000.0, "severity": "hard"}
+    },
+    "uncertainty_slots": {},
+    "ambiguity_level": 0.0,
+    "clarification_needed": false,
+    "task_difficulty": "easy",
+    "expected": {
+      "feasible": true,
+      "min_results": 1,
+      "budget_satisfied": true,
+      "required_attrs": [],
+      "acceptable_budget_range": [0, 2000],
+      "forbidden_violations": ["budget_exceed"],
+      "gold_categories": ["monitor", "keyboard", "mouse"]
+    }
+  },
+  {
+    "task_id": "t022",
+    "query": "桌搭三件套，显示器+键盘+鼠标，预算3000",
+    "task_type": "bundle",
+    "categories": ["monitor", "keyboard", "mouse"],
+    "constraints": {
+      "budget_total": {"value": 3000.0, "severity": "hard"}
+    },
+    "uncertainty_slots": {},
+    "ambiguity_level": 0.0,
+    "clarification_needed": false,
+    "task_difficulty": "easy",
+    "expected": {
+      "feasible": true,
+      "min_results": 1,
+      "budget_satisfied": true,
+      "required_attrs": [],
+      "acceptable_budget_range": [0, 3000],
+      "forbidden_violations": ["budget_exceed"],
+      "gold_categories": ["monitor", "keyboard", "mouse"]
+    }
+  },
+  {
+    "task_id": "t023",
+    "query": "显示器+键盘+鼠标+台灯，四件套，预算2000",
+    "task_type": "bundle",
+    "categories": ["monitor", "keyboard", "mouse", "desk_lamp"],
+    "constraints": {
+      "budget_total": {"value": 2000.0, "severity": "hard"}
+    },
+    "uncertainty_slots": {},
+    "ambiguity_level": 0.0,
+    "clarification_needed": false,
+    "task_difficulty": "easy",
+    "expected": {
+      "feasible": true,
+      "min_results": 1,
+      "budget_satisfied": true,
+      "required_attrs": [],
+      "acceptable_budget_range": [0, 2000],
+      "forbidden_violations": ["budget_exceed"],
+      "gold_categories": ["monitor", "keyboard", "mouse", "desk_lamp"]
+    }
+  },
+  {
+    "task_id": "t024",
+    "query": "高端桌搭，显示器+键盘+鼠标，全无线，预算5000",
+    "task_type": "bundle",
+    "categories": ["monitor", "keyboard", "mouse"],
+    "constraints": {
+      "budget_total": {"value": 5000.0, "severity": "hard"},
+      "wireless": {"value": true, "severity": "soft"}
+    },
+    "uncertainty_slots": {},
+    "ambiguity_level": 0.0,
+    "clarification_needed": false,
+    "task_difficulty": "easy",
+    "expected": {
+      "feasible": true,
+      "min_results": 1,
+      "budget_satisfied": true,
+      "required_attrs": [],
+      "acceptable_budget_range": [0, 5000],
+      "forbidden_violations": ["budget_exceed"],
+      "gold_categories": ["monitor", "keyboard", "mouse"]
+    }
+  },
+  {
+    "task_id": "t025",
+    "query": "整套工作站：显示器+键盘+鼠标+台灯+椅子，预算5000",
+    "task_type": "bundle",
+    "categories": ["monitor", "keyboard", "mouse", "desk_lamp", "chair"],
+    "constraints": {
+      "budget_total": {"value": 5000.0, "severity": "hard"}
+    },
+    "uncertainty_slots": {},
+    "ambiguity_level": 0.0,
+    "clarification_needed": false,
+    "task_difficulty": "easy",
+    "expected": {
+      "feasible": true,
+      "min_results": 1,
+      "budget_satisfied": true,
+      "required_attrs": [],
+      "acceptable_budget_range": [0, 5000],
+      "forbidden_violations": ["budget_exceed"],
+      "gold_categories": ["monitor", "keyboard", "mouse", "desk_lamp", "chair"]
+    }
+  },
+  {
+    "task_id": "t026",
+    "query": "游戏桌搭：显示器+耳机+键盘+鼠标，预算4000",
+    "task_type": "bundle",
+    "categories": ["monitor", "headset", "keyboard", "mouse"],
+    "constraints": {
+      "budget_total": {"value": 4000.0, "severity": "hard"}
+    },
+    "uncertainty_slots": {},
+    "ambiguity_level": 0.0,
+    "clarification_needed": false,
+    "task_difficulty": "easy",
+    "expected": {
+      "feasible": true,
+      "min_results": 1,
+      "budget_satisfied": true,
+      "required_attrs": [],
+      "acceptable_budget_range": [0, 4000],
+      "forbidden_violations": ["budget_exceed"],
+      "gold_categories": ["monitor", "headset", "keyboard", "mouse"]
+    }
+  },
+  {
+    "task_id": "t027",
+    "query": "4K桌搭，显示器+键盘+鼠标，全线材要整洁（偏好无线），预算4000",
+    "task_type": "bundle",
+    "categories": ["monitor", "keyboard", "mouse"],
+    "constraints": {
+      "budget_total": {"value": 4000.0, "severity": "hard"},
+      "resolution": {"value": "3840x2160", "severity": "hard"},
+      "wireless": {"value": true, "severity": "soft"}
+    },
+    "uncertainty_slots": {},
+    "ambiguity_level": 0.1,
+    "clarification_needed": false,
+    "task_difficulty": "medium",
+    "expected": {
+      "feasible": true,
+      "min_results": 1,
+      "budget_satisfied": true,
+      "required_attrs": ["resolution"],
+      "acceptable_budget_range": [0, 4000],
+      "forbidden_violations": ["budget_exceed"],
+      "gold_categories": ["monitor", "keyboard", "mouse"]
+    }
+  },
+  {
+    "task_id": "t028",
+    "query": "旗舰桌搭：4K显示器+键盘+无线鼠标，预算6000，键盘和鼠标要全无线",
+    "task_type": "bundle",
+    "categories": ["monitor", "keyboard", "mouse"],
+    "constraints": {
+      "budget_total": {"value": 6000.0, "severity": "hard"},
+      "resolution": {"value": "3840x2160", "severity": "soft"},
+      "wireless": {"value": true, "severity": "hard"}
+    },
+    "uncertainty_slots": {},
+    "ambiguity_level": 0.0,
+    "clarification_needed": false,
+    "task_difficulty": "medium",
+    "expected": {
+      "feasible": true,
+      "min_results": 1,
+      "budget_satisfied": true,
+      "required_attrs": ["wireless"],
+      "acceptable_budget_range": [0, 6000],
+      "forbidden_violations": ["budget_exceed", "wireless_missing"],
+      "gold_categories": ["monitor", "keyboard", "mouse"]
+    }
+  },
+  {
+    "task_id": "t029",
+    "query": "笔记本+鼠标，移动办公组合，预算6000",
+    "task_type": "bundle",
+    "categories": ["laptop", "mouse"],
+    "constraints": {
+      "budget_total": {"value": 6000.0, "severity": "hard"}
+    },
+    "uncertainty_slots": {},
+    "ambiguity_level": 0.0,
+    "clarification_needed": false,
+    "task_difficulty": "medium",
+    "expected": {
+      "feasible": true,
+      "min_results": 1,
+      "budget_satisfied": true,
+      "required_attrs": [],
+      "acceptable_budget_range": [0, 6000],
+      "forbidden_violations": ["budget_exceed"],
+      "gold_categories": ["laptop", "mouse"]
+    }
+  },
+  {
+    "task_id": "t030",
+    "query": "编程工作站：笔记本+机械键盘+鼠标，预算8000",
+    "task_type": "bundle",
+    "categories": ["laptop", "keyboard", "mouse"],
+    "constraints": {
+      "budget_total": {"value": 8000.0, "severity": "hard"},
+      "mechanical": {"value": true, "severity": "soft"}
+    },
+    "uncertainty_slots": {},
+    "ambiguity_level": 0.1,
+    "clarification_needed": false,
+    "task_difficulty": "medium",
+    "expected": {
+      "feasible": true,
+      "min_results": 1,
+      "budget_satisfied": true,
+      "required_attrs": [],
+      "acceptable_budget_range": [0, 8000],
+      "forbidden_violations": ["budget_exceed"],
+      "gold_categories": ["laptop", "keyboard", "mouse"]
+    }
+  },
+  {
+    "task_id": "t031",
+    "query": "移动办公：笔记本+降噪耳机，预算6000",
+    "task_type": "bundle",
+    "categories": ["laptop", "headset"],
+    "constraints": {
+      "budget_total": {"value": 6000.0, "severity": "hard"},
       "noise_cancelling": {"value": true, "severity": "soft"}
     },
     "uncertainty_slots": {},
+    "ambiguity_level": 0.0,
+    "clarification_needed": false,
+    "task_difficulty": "medium",
     "expected": {
+      "feasible": true,
       "min_results": 1,
       "budget_satisfied": true,
-      "required_attrs": []
+      "required_attrs": [],
+      "acceptable_budget_range": [0, 6000],
+      "forbidden_violations": ["budget_exceed"],
+      "gold_categories": ["laptop", "headset"]
+    }
+  },
+  {
+    "task_id": "t032",
+    "query": "设计师双屏工作站：MacBook+4K显示器，预算12000",
+    "task_type": "bundle",
+    "categories": ["laptop", "monitor"],
+    "constraints": {
+      "budget_total": {"value": 12000.0, "severity": "hard"},
+      "brand": {"value": "Apple", "severity": "soft"},
+      "resolution": {"value": "3840x2160", "severity": "soft"}
+    },
+    "uncertainty_slots": {},
+    "ambiguity_level": 0.1,
+    "clarification_needed": false,
+    "task_difficulty": "medium",
+    "expected": {
+      "feasible": true,
+      "min_results": 1,
+      "budget_satisfied": true,
+      "required_attrs": [],
+      "acceptable_budget_range": [0, 12000],
+      "forbidden_violations": ["budget_exceed"],
+      "gold_categories": ["laptop", "monitor"]
+    }
+  },
+  {
+    "task_id": "t033",
+    "query": "游戏全套：显示器+键盘+鼠标+耳机，预算3000",
+    "task_type": "bundle",
+    "categories": ["monitor", "keyboard", "mouse", "headset"],
+    "constraints": {
+      "budget_total": {"value": 3000.0, "severity": "hard"}
+    },
+    "uncertainty_slots": {},
+    "ambiguity_level": 0.0,
+    "clarification_needed": false,
+    "task_difficulty": "medium",
+    "expected": {
+      "feasible": true,
+      "min_results": 1,
+      "budget_satisfied": true,
+      "required_attrs": [],
+      "acceptable_budget_range": [0, 3000],
+      "forbidden_violations": ["budget_exceed"],
+      "gold_categories": ["monitor", "keyboard", "mouse", "headset"]
+    }
+  },
+  {
+    "task_id": "t034",
+    "query": "完整工作站：笔记本+显示器+机械键盘+鼠标+椅子+升降桌，预算15000",
+    "task_type": "bundle",
+    "categories": ["laptop", "monitor", "keyboard", "mouse", "chair", "desk"],
+    "constraints": {
+      "budget_total": {"value": 15000.0, "severity": "hard"},
+      "mechanical": {"value": true, "severity": "soft"},
+      "motorized": {"value": true, "severity": "soft"}
+    },
+    "uncertainty_slots": {},
+    "ambiguity_level": 0.0,
+    "clarification_needed": false,
+    "task_difficulty": "hard",
+    "expected": {
+      "feasible": true,
+      "min_results": 1,
+      "budget_satisfied": true,
+      "required_attrs": [],
+      "acceptable_budget_range": [0, 15000],
+      "forbidden_violations": ["budget_exceed"],
+      "gold_categories": ["laptop", "monitor", "keyboard", "mouse", "chair", "desk"]
+    }
+  },
+  {
+    "task_id": "t035",
+    "query": "极致旗舰工作站，全无线全套，不差钱，预算20000",
+    "task_type": "bundle",
+    "categories": ["laptop", "monitor", "keyboard", "mouse", "headset", "chair", "desk"],
+    "constraints": {
+      "budget_total": {"value": 20000.0, "severity": "hard"},
+      "wireless": {"value": true, "severity": "soft"}
+    },
+    "uncertainty_slots": {},
+    "ambiguity_level": 0.1,
+    "clarification_needed": false,
+    "task_difficulty": "hard",
+    "expected": {
+      "feasible": true,
+      "min_results": 1,
+      "budget_satisfied": true,
+      "required_attrs": [],
+      "acceptable_budget_range": [0, 20000],
+      "forbidden_violations": ["budget_exceed"],
+      "gold_categories": ["laptop", "monitor", "keyboard", "mouse", "headset", "chair", "desk"]
+    }
+  },
+  {
+    "task_id": "t036",
+    "query": "降噪耳机+人体工学椅，需要4D扶手，预算15000",
+    "task_type": "bundle",
+    "categories": ["headset", "chair"],
+    "constraints": {
+      "budget_total": {"value": 15000.0, "severity": "hard"},
+      "noise_cancelling": {"value": true, "severity": "hard"},
+      "armrest_type": {"value": "4D", "severity": "soft"}
+    },
+    "uncertainty_slots": {},
+    "ambiguity_level": 0.0,
+    "clarification_needed": false,
+    "task_difficulty": "hard",
+    "expected": {
+      "feasible": true,
+      "min_results": 1,
+      "budget_satisfied": true,
+      "required_attrs": ["noise_cancelling"],
+      "acceptable_budget_range": [0, 15000],
+      "forbidden_violations": ["budget_exceed", "noise_cancelling_missing"],
+      "gold_categories": ["headset", "chair"]
+    }
+  },
+  {
+    "task_id": "t037",
+    "query": "全桌面整套：显示器+键盘+鼠标+台灯+椅子+升降桌，预算6000",
+    "task_type": "bundle",
+    "categories": ["monitor", "keyboard", "mouse", "desk_lamp", "chair", "desk"],
+    "constraints": {
+      "budget_total": {"value": 6000.0, "severity": "hard"},
+      "motorized": {"value": true, "severity": "soft"}
+    },
+    "uncertainty_slots": {},
+    "ambiguity_level": 0.0,
+    "clarification_needed": false,
+    "task_difficulty": "hard",
+    "expected": {
+      "feasible": true,
+      "min_results": 1,
+      "budget_satisfied": true,
+      "required_attrs": [],
+      "acceptable_budget_range": [0, 6000],
+      "forbidden_violations": ["budget_exceed"],
+      "gold_categories": ["monitor", "keyboard", "mouse", "desk_lamp", "chair", "desk"]
+    }
+  },
+  {
+    "task_id": "t038",
+    "query": "帮我配置工作场所，大概预算5000左右",
+    "task_type": "bundle",
+    "categories": [],
+    "constraints": {
+      "budget_total": {"value": 5000.0, "severity": "soft"}
+    },
+    "uncertainty_slots": {
+      "usage_scenario": null,
+      "categories": null,
+      "delivery_days": null
+    },
+    "ambiguity_level": 0.7,
+    "clarification_needed": true,
+    "task_difficulty": "medium",
+    "expected": {
+      "feasible": true,
+      "min_results": 1,
+      "budget_satisfied": true,
+      "required_attrs": [],
+      "acceptable_budget_range": [0, 6000],
+      "forbidden_violations": [],
+      "gold_categories": []
+    }
+  },
+  {
+    "task_id": "t039",
+    "query": "买个耳机和键盘，要好一点的",
+    "task_type": "bundle",
+    "categories": ["headset", "keyboard"],
+    "constraints": {},
+    "uncertainty_slots": {
+      "budget_total": null,
+      "quality_tier": null
+    },
+    "ambiguity_level": 0.6,
+    "clarification_needed": true,
+    "task_difficulty": "medium",
+    "expected": {
+      "feasible": true,
+      "min_results": 1,
+      "budget_satisfied": true,
+      "required_attrs": [],
+      "acceptable_budget_range": [0, 99999],
+      "forbidden_violations": [],
+      "gold_categories": ["headset", "keyboard"]
+    }
+  },
+  {
+    "task_id": "t040",
+    "query": "给家庭办公配一套设备",
+    "task_type": "bundle",
+    "categories": [],
+    "constraints": {},
+    "uncertainty_slots": {
+      "budget_total": null,
+      "usage_scenario": null,
+      "categories": null
+    },
+    "ambiguity_level": 0.9,
+    "clarification_needed": true,
+    "task_difficulty": "easy",
+    "expected": {
+      "feasible": true,
+      "min_results": 1,
+      "budget_satisfied": true,
+      "required_attrs": [],
+      "acceptable_budget_range": [0, 99999],
+      "forbidden_violations": [],
+      "gold_categories": []
+    }
+  },
+  {
+    "task_id": "t041",
+    "query": "电脑桌搭三件套，预算1500",
+    "task_type": "bundle",
+    "categories": ["monitor", "keyboard", "mouse"],
+    "constraints": {
+      "budget_total": {"value": 1500.0, "severity": "hard"}
+    },
+    "uncertainty_slots": {},
+    "ambiguity_level": 0.2,
+    "clarification_needed": false,
+    "task_difficulty": "medium",
+    "expected": {
+      "feasible": true,
+      "min_results": 1,
+      "budget_satisfied": true,
+      "required_attrs": [],
+      "acceptable_budget_range": [0, 1500],
+      "forbidden_violations": ["budget_exceed"],
+      "gold_categories": ["monitor", "keyboard", "mouse"]
+    }
+  },
+  {
+    "task_id": "t042",
+    "query": "降噪耳机，预算200",
+    "task_type": "single",
+    "categories": ["headset"],
+    "constraints": {
+      "budget_total": {"value": 200.0, "severity": "hard"},
+      "noise_cancelling": {"value": true, "severity": "hard"}
+    },
+    "uncertainty_slots": {},
+    "ambiguity_level": 0.0,
+    "clarification_needed": false,
+    "task_difficulty": "hard",
+    "expected": {
+      "feasible": false,
+      "min_results": 0,
+      "budget_satisfied": false,
+      "required_attrs": [],
+      "acceptable_budget_range": [799, 1000],
+      "forbidden_violations": [],
+      "gold_categories": ["headset"],
+      "expect_relaxation": true,
+      "relaxation_hint": "budget_relax_min_799_or_drop_nc"
+    }
+  },
+  {
+    "task_id": "t043",
+    "query": "显示器+键盘+鼠标三件套，总预算500",
+    "task_type": "bundle",
+    "categories": ["monitor", "keyboard", "mouse"],
+    "constraints": {
+      "budget_total": {"value": 500.0, "severity": "hard"}
+    },
+    "uncertainty_slots": {},
+    "ambiguity_level": 0.0,
+    "clarification_needed": false,
+    "task_difficulty": "hard",
+    "expected": {
+      "feasible": false,
+      "min_results": 0,
+      "budget_satisfied": false,
+      "required_attrs": [],
+      "acceptable_budget_range": [1147, 2000],
+      "forbidden_violations": [],
+      "gold_categories": ["monitor", "keyboard", "mouse"],
+      "expect_relaxation": true,
+      "relaxation_hint": "budget_relax_min_1147"
+    }
+  },
+  {
+    "task_id": "t044",
+    "query": "要有线降噪耳机，预算300，必须是有线",
+    "task_type": "single",
+    "categories": ["headset"],
+    "constraints": {
+      "budget_total": {"value": 300.0, "severity": "hard"},
+      "noise_cancelling": {"value": true, "severity": "hard"},
+      "wireless": {"value": false, "severity": "hard"}
+    },
+    "uncertainty_slots": {},
+    "ambiguity_level": 0.0,
+    "clarification_needed": false,
+    "task_difficulty": "hard",
+    "expected": {
+      "feasible": false,
+      "min_results": 0,
+      "budget_satisfied": false,
+      "required_attrs": [],
+      "acceptable_budget_range": [0, 0],
+      "forbidden_violations": [],
+      "gold_categories": ["headset"],
+      "expect_relaxation": true,
+      "relaxation_hint": "constraint_conflict_nc_wired",
+      "note": "目录中无线降噪耳机最低799，有线耳机无降噪；约束冲突"
+    }
+  },
+  {
+    "task_id": "t045",
+    "query": "买一把HHKB键盘，预算2000",
+    "task_type": "single",
+    "categories": ["keyboard"],
+    "constraints": {
+      "budget_total": {"value": 2000.0, "severity": "hard"},
+      "brand": {"value": "HHKB", "severity": "hard"}
+    },
+    "uncertainty_slots": {},
+    "ambiguity_level": 0.0,
+    "clarification_needed": false,
+    "task_difficulty": "hard",
+    "expected": {
+      "feasible": false,
+      "min_results": 0,
+      "budget_satisfied": false,
+      "required_attrs": [],
+      "acceptable_budget_range": [2199, 2500],
+      "forbidden_violations": [],
+      "gold_categories": ["keyboard"],
+      "expect_relaxation": true,
+      "relaxation_hint": "budget_relax_to_2199"
+    }
+  },
+  {
+    "task_id": "t046",
+    "query": "Sony WH-1000XM5 vs Bose QuietComfort 45，帮我分析哪款更适合",
+    "task_type": "comparison",
+    "categories": ["headset"],
+    "constraints": {
+      "brand": {"value": ["Sony", "Bose"], "severity": "hard"}
+    },
+    "uncertainty_slots": {},
+    "ambiguity_level": 0.2,
+    "clarification_needed": false,
+    "task_difficulty": "medium",
+    "expected": {
+      "feasible": true,
+      "min_results": 2,
+      "budget_satisfied": true,
+      "required_attrs": ["noise_cancelling"],
+      "acceptable_budget_range": [0, 99999],
+      "forbidden_violations": [],
+      "gold_categories": ["headset"]
+    }
+  },
+  {
+    "task_id": "t047",
+    "query": "给程序员朋友买个生日礼物，键盘或者鼠标，预算600",
+    "task_type": "gift",
+    "categories": ["keyboard", "mouse"],
+    "constraints": {
+      "budget_total": {"value": 600.0, "severity": "hard"}
+    },
+    "uncertainty_slots": {
+      "recipient_preference": null
+    },
+    "ambiguity_level": 0.5,
+    "clarification_needed": false,
+    "task_difficulty": "easy",
+    "expected": {
+      "feasible": true,
+      "min_results": 1,
+      "budget_satisfied": true,
+      "required_attrs": [],
+      "acceptable_budget_range": [0, 600],
+      "forbidden_violations": ["budget_exceed"],
+      "gold_categories": ["keyboard", "mouse"]
+    }
+  },
+  {
+    "task_id": "t048",
+    "query": "再买一个小米无线鼠标，和之前一样的",
+    "task_type": "replenish",
+    "categories": ["mouse"],
+    "constraints": {
+      "brand": {"value": "Xiaomi", "severity": "hard"},
+      "wireless": {"value": true, "severity": "hard"}
+    },
+    "uncertainty_slots": {},
+    "ambiguity_level": 0.1,
+    "clarification_needed": false,
+    "task_difficulty": "easy",
+    "expected": {
+      "feasible": true,
+      "min_results": 1,
+      "budget_satisfied": true,
+      "required_attrs": ["wireless"],
+      "acceptable_budget_range": [0, 200],
+      "forbidden_violations": [],
+      "gold_categories": ["mouse"]
+    }
+  },
+  {
+    "task_id": "t049",
+    "query": "需要当天或明天到的显示器，预算3000",
+    "task_type": "single",
+    "categories": ["monitor"],
+    "constraints": {
+      "budget_total": {"value": 3000.0, "severity": "hard"},
+      "delivery_days": {"value": 1, "severity": "soft"}
+    },
+    "uncertainty_slots": {},
+    "ambiguity_level": 0.0,
+    "clarification_needed": false,
+    "task_difficulty": "medium",
+    "expected": {
+      "feasible": true,
+      "min_results": 1,
+      "budget_satisfied": true,
+      "required_attrs": [],
+      "acceptable_budget_range": [0, 3000],
+      "forbidden_violations": ["budget_exceed"],
+      "gold_categories": ["monitor"]
+    }
+  },
+  {
+    "task_id": "t050",
+    "query": "我完全不知道买什么，你来推荐",
+    "task_type": "single",
+    "categories": [],
+    "constraints": {},
+    "uncertainty_slots": {
+      "budget_total": null,
+      "usage_scenario": null,
+      "categories": null,
+      "delivery_days": null
+    },
+    "ambiguity_level": 1.0,
+    "clarification_needed": true,
+    "task_difficulty": "easy",
+    "expected": {
+      "feasible": true,
+      "min_results": 0,
+      "budget_satisfied": true,
+      "required_attrs": [],
+      "acceptable_budget_range": [0, 99999],
+      "forbidden_violations": [],
+      "gold_categories": []
+    }
+  },
+  {
+    "task_id": "t051",
+    "query": "高端全套配置，不在乎价格，全部要最好的",
+    "task_type": "bundle",
+    "categories": ["headset", "monitor", "keyboard", "mouse", "laptop", "chair", "desk", "desk_lamp"],
+    "constraints": {
+      "budget_total": {"value": 100000.0, "severity": "soft"}
+    },
+    "uncertainty_slots": {},
+    "ambiguity_level": 0.1,
+    "clarification_needed": false,
+    "task_difficulty": "easy",
+    "expected": {
+      "feasible": true,
+      "min_results": 1,
+      "budget_satisfied": true,
+      "required_attrs": [],
+      "acceptable_budget_range": [0, 100000],
+      "forbidden_violations": [],
+      "gold_categories": ["headset", "monitor", "keyboard", "mouse", "laptop", "chair", "desk", "desk_lamp"]
+    }
+  },
+  {
+    "task_id": "t052",
+    "query": "桌搭三件套，预算刚好1150，不能超",
+    "task_type": "bundle",
+    "categories": ["monitor", "keyboard", "mouse"],
+    "constraints": {
+      "budget_total": {"value": 1150.0, "severity": "hard"}
+    },
+    "uncertainty_slots": {},
+    "ambiguity_level": 0.0,
+    "clarification_needed": false,
+    "task_difficulty": "hard",
+    "expected": {
+      "feasible": true,
+      "min_results": 1,
+      "budget_satisfied": true,
+      "required_attrs": [],
+      "acceptable_budget_range": [1147, 1150],
+      "forbidden_violations": ["budget_exceed"],
+      "gold_categories": ["monitor", "keyboard", "mouse"],
+      "note": "AOC(999)+A4Tech(79)+小米鼠标(69)=1147，极度卡预算"
     }
   }
 ]

@@ -100,6 +100,10 @@ class BenchmarkRunner:
         user_id: str = "benchmark_user",
         tasks_path: Optional[str] = None,
         output_dir: str = "logs",
+        # ── 消融开关 ──
+        disable_graph: bool = False,
+        disable_verifier: bool = False,
+        disable_clarification: bool = False,
     ):
         self.orchestrator = ShoppingAgentOrchestrator(use_rl=use_rl)
         self.user_id = user_id
@@ -108,6 +112,10 @@ class BenchmarkRunner:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self._metrics = MetricsComputer()
         self._use_rl = use_rl
+        # 消融开关
+        self._disable_graph = disable_graph
+        self._disable_verifier = disable_verifier
+        self._disable_clarification = disable_clarification
 
     def run(
         self,
@@ -174,17 +182,26 @@ class BenchmarkRunner:
             state.transition(WorkflowStep.RETRIEVE)
             self.orchestrator._step_retrieve(state)
 
-            # 构建候选图
-            state.transition(WorkflowStep.BUILD_GRAPH)
-            self.orchestrator._step_build_graph(state)
+            # 构建候选图（消融 C 关闭此步）
+            if not self._disable_graph:
+                state.transition(WorkflowStep.BUILD_GRAPH)
+                self.orchestrator._step_build_graph(state)
 
             # 规划
             state.transition(WorkflowStep.PLAN)
             self.orchestrator._step_plan(state)
 
-            # 校验
-            state.transition(WorkflowStep.VERIFY)
-            self.orchestrator._step_verify(state)
+            # 校验（消融 A/baseline 关闭此步：直接选最高分方案）
+            if not self._disable_verifier:
+                state.transition(WorkflowStep.VERIFY)
+                self.orchestrator._step_verify(state)
+            else:
+                # 无 verifier：直接选 overall_score 最高的方案
+                if state.candidate_plans:
+                    state.selected_plan = max(
+                        state.candidate_plans, key=lambda p: p.overall_score
+                    )
+                    result.verifier_skipped = True
 
             # 填写结果
             result.has_result = state.selected_plan is not None
