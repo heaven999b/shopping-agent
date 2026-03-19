@@ -366,6 +366,7 @@ class ShoppingAgentOrchestrator:
             task=state.task,
             candidate_graph=state.candidate_graph,
             user_profile=state.user_profile,
+            retrieved_products=state.retrieved_products,
         )
         state.candidate_plans = plans
         state.record_attribution(

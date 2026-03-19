@@ -1,0 +1,174 @@
+[
+  {
+    "task_id": "t001",
+    "query": "帮我买一个降噪耳机，预算2000以内",
+    "task_type": "single",
+    "categories": ["headset"],
+    "constraints": {
+      "budget_total": {"value": 2000.0, "severity": "hard"},
+      "noise_cancelling": {"value": true, "severity": "hard"}
+    },
+    "uncertainty_slots": {},
+    "expected": {
+      "min_results": 1,
+      "budget_satisfied": true,
+      "required_attrs": ["noise_cancelling"]
+    }
+  },
+  {
+    "task_id": "t002",
+    "query": "配一套桌面办公套装，显示器+键盘+鼠标，总预算4000",
+    "task_type": "bundle",
+    "categories": ["monitor", "keyboard", "mouse"],
+    "constraints": {
+      "budget_total": {"value": 4000.0, "severity": "hard"}
+    },
+    "uncertainty_slots": {
+      "usage_scenario": "uncertain"
+    },
+    "expected": {
+      "min_results": 1,
+      "budget_satisfied": true,
+      "required_attrs": []
+    }
+  },
+  {
+    "task_id": "t003",
+    "query": "我要买一台轻薄笔记本，出差用，重量1.5kg以内，预算6000",
+    "task_type": "single",
+    "categories": ["laptop"],
+    "constraints": {
+      "budget_total": {"value": 6000.0, "severity": "hard"},
+      "weight_kg_max": {"value": 1.5, "severity": "hard"}
+    },
+    "uncertainty_slots": {
+      "brand_preference": "uncertain"
+    },
+    "expected": {
+      "min_results": 1,
+      "budget_satisfied": true,
+      "required_attrs": []
+    }
+  },
+  {
+    "task_id": "t004",
+    "query": "帮我配一套完整的居家办公桌搭，显示器+键盘+鼠标+台灯+椅子，预算8000",
+    "task_type": "bundle",
+    "categories": ["monitor", "keyboard", "mouse", "desk_lamp", "chair"],
+    "constraints": {
+      "budget_total": {"value": 8000.0, "severity": "hard"}
+    },
+    "uncertainty_slots": {
+      "brand_preference": "uncertain",
+      "color": "uncertain"
+    },
+    "expected": {
+      "min_results": 1,
+      "budget_satisfied": true,
+      "required_attrs": []
+    }
+  },
+  {
+    "task_id": "t005",
+    "query": "买一把人体工学椅，久坐舒适，价格不超过2000",
+    "task_type": "single",
+    "categories": ["chair"],
+    "constraints": {
+      "budget_total": {"value": 2000.0, "severity": "hard"},
+      "adjustable_lumbar": {"value": true, "severity": "soft"}
+    },
+    "uncertainty_slots": {},
+    "expected": {
+      "min_results": 1,
+      "budget_satisfied": true,
+      "required_attrs": []
+    }
+  },
+  {
+    "task_id": "t006",
+    "query": "想买一个2K以上高刷新率显示器打游戏用，预算2500",
+    "task_type": "single",
+    "categories": ["monitor"],
+    "constraints": {
+      "budget_total": {"value": 2500.0, "severity": "hard"},
+      "refresh_rate_hz_min": {"value": 120, "severity": "hard"}
+    },
+    "uncertainty_slots": {
+      "screen_size_preference": "uncertain"
+    },
+    "expected": {
+      "min_results": 1,
+      "budget_satisfied": true,
+      "required_attrs": []
+    }
+  },
+  {
+    "task_id": "t007",
+    "query": "需要一个无线机械键盘，预算600以内，要RGB",
+    "task_type": "single",
+    "categories": ["keyboard"],
+    "constraints": {
+      "budget_total": {"value": 600.0, "severity": "hard"},
+      "wireless": {"value": true, "severity": "hard"},
+      "mechanical": {"value": true, "severity": "hard"},
+      "rgb": {"value": true, "severity": "soft"}
+    },
+    "uncertainty_slots": {
+      "switch_type": "uncertain"
+    },
+    "expected": {
+      "min_results": 1,
+      "budget_satisfied": true,
+      "required_attrs": ["wireless", "mechanical"]
+    }
+  },
+  {
+    "task_id": "t008",
+    "query": "帮我买一台MacBook，不超过一万",
+    "task_type": "single",
+    "categories": ["laptop"],
+    "constraints": {
+      "budget_total": {"value": 10000.0, "severity": "hard"},
+      "brand": {"value": "Apple", "severity": "hard"}
+    },
+    "uncertainty_slots": {},
+    "expected": {
+      "min_results": 1,
+      "budget_satisfied": true,
+      "required_attrs": []
+    }
+  },
+  {
+    "task_id": "t009",
+    "query": "给我推荐一套电竞外设，鼠标+键盘+耳机，预算1500",
+    "task_type": "bundle",
+    "categories": ["mouse", "keyboard", "headset"],
+    "constraints": {
+      "budget_total": {"value": 1500.0, "severity": "hard"}
+    },
+    "uncertainty_slots": {
+      "brand_preference": "uncertain"
+    },
+    "expected": {
+      "min_results": 1,
+      "budget_satisfied": true,
+      "required_attrs": []
+    }
+  },
+  {
+    "task_id": "t010",
+    "query": "预算500以内的降噪耳机，越便宜越好",
+    "task_type": "single",
+    "categories": ["headset"],
+    "constraints": {
+      "budget_total": {"value": 500.0, "severity": "hard"},
+      "noise_cancelling": {"value": true, "severity": "soft"}
+    },
+    "uncertainty_slots": {},
+    "expected": {
+      "min_results": 1,
+      "budget_satisfied": true,
+      "required_attrs": []
+    }
+  }
+]

@@ -1,36 +1,65 @@
 """
 HybridRetriever — 多通道商品召回器。
 
-三路召回：
-  1. 关键词检索（lexical）：精确匹配品牌/型号/关键词
-  2. 语义检索（dense）：理解语义相似性
-  3. 属性过滤（attribute）：基于结构化约束过滤
+三路召回（按优先级）：
+  1. 属性精确过滤：按硬约束过滤（预算/时效/必要属性）
+  2. 关键词匹配：在 title/brand 上做词袋匹配
+  3. 用户画像重排：偏好品牌提权，价格敏感度调整
 
-生产环境接入电商搜索 API（京东/淘宝开放平台等）。
-当前实现为 mock，接口与生产版本一致。
+数据后端：ProductCatalog（加载自 data/products.json）。
+生产环境可替换为电商 API，接口不变。
 """
 
 from __future__ import annotations
 
-import random
-import uuid
-from typing import Optional
+from typing import Any, Optional
 
 from shopping_agent.common.constants import RETRIEVAL_TOP_K
 from shopping_agent.common.exceptions import NoProductFoundError
-from shopping_agent.common.types import (
-    LogisticsInfo,
-    Product,
-    ProductAttribute,
-    ShoppingTask,
-    UserProfile,
-)
+from shopping_agent.common.types import Product, ShoppingTask, UserProfile
+from shopping_agent.data.loader import ProductCatalog, get_catalog
+
+
+# 约束键名 → 商品属性名 的映射表
+# tasks.json 的 constraints 键名可能和 products.json 的属性名不同
+_CONSTRAINT_TO_ATTR: dict[str, str] = {
+    "noise_cancelling": "noise_cancelling",
+    "wireless": "wireless",
+    "mechanical": "mechanical",
+    "rgb": "rgb",
+    "adjustable_lumbar": "adjustable_lumbar",
+    "motorized": "motorized",
+    # 范围型约束：{key}_min / {key}_max 会被解析为 attr 的 _min/_max
+    "refresh_rate_hz_min": "refresh_rate_hz_min",
+    "weight_kg_max": "weight_kg_max",
+}
+
+# 不属于商品属性的约束键（预算/时效/品牌等，单独处理）
+_NON_ATTR_CONSTRAINT_KEYS = {
+    "budget_total",
+    "delivery_days",
+    "brand",
+    "brand_preference",
+    "platform",
+}
 
 
 class HybridRetriever:
-    def __init__(self):
-        # 生产环境：注入各平台 API 客户端
-        pass
+    """
+    多通道召回器。
+
+    参数 catalog 可由外部注入（用于测试 / 自定义数据集），
+    默认使用全局单例（自动加载 data/products.json）。
+    """
+
+    def __init__(self, catalog: Optional[ProductCatalog] = None):
+        self._catalog = catalog  # 延迟初始化，首次 retrieve 时加载
+
+    @property
+    def catalog(self) -> ProductCatalog:
+        if self._catalog is None:
+            self._catalog = get_catalog()
+        return self._catalog
 
     def retrieve(
         self,
@@ -39,22 +68,57 @@ class HybridRetriever:
         top_k: int = RETRIEVAL_TOP_K,
     ) -> list[Product]:
         """
-        多通道召回，返回标准化前的原始候选商品列表。
+        多通道召回，返回候选商品列表（已去重、已重排）。
         """
-        hard_constraints = task.get_hard_constraints()
-        budget = hard_constraints.get("budget_total")
-        delivery_days = hard_constraints.get("delivery_days")
+        hard = task.get_hard_constraints()
+        budget = hard.get("budget_total")
+        delivery_days = hard.get("delivery_days")
 
+        # 从约束中提取品牌过滤
+        brand_filter: Optional[list[str]] = None
+        if "brand" in hard and hard["brand"]:
+            brand_filter = [hard["brand"]] if isinstance(hard["brand"], str) else hard["brand"]
+
+        # 从约束中提取商品属性过滤
+        required_attrs = self._extract_attr_constraints(hard)
+
+        # 每品类单独召回，再合并
         all_candidates: list[Product] = []
+        per_cat_k = max(top_k // max(len(task.categories), 1) + 5, 10)
 
         for category in task.categories:
-            candidates = self._retrieve_category(
-                category=category,
-                budget=budget,
-                delivery_days=delivery_days,
-                user_profile=user_profile,
-                top_k=top_k // len(task.categories) + 1,
+            # 先按硬约束召回
+            candidates = self.catalog.search(
+                categories=[category],
+                budget_max=budget,
+                delivery_days_max=delivery_days,
+                required_attrs=required_attrs or None,
+                brands=brand_filter,
+                top_k=per_cat_k,
             )
+
+            # 若硬约束下结果不足，放宽属性约束重试（保留预算/时效）
+            if len(candidates) < 3 and required_attrs:
+                candidates = self.catalog.search(
+                    categories=[category],
+                    budget_max=budget,
+                    delivery_days_max=delivery_days,
+                    brands=brand_filter,
+                    top_k=per_cat_k,
+                )
+
+            # 关键词补充：用 query 中的词做模糊召回，填补空缺品类
+            if len(candidates) < 2:
+                keyword = self._extract_keyword(task.raw_query, category)
+                if keyword:
+                    extra = self.catalog.search(
+                        categories=[category],
+                        keyword=keyword,
+                        budget_max=budget,
+                        top_k=5,
+                    )
+                    candidates = self._merge_dedupe(candidates, extra)
+
             all_candidates.extend(candidates)
 
         if not all_candidates:
@@ -62,83 +126,74 @@ class HybridRetriever:
                 f"在约束条件下（预算={budget}，品类={task.categories}）未找到商品。"
             )
 
-        # 去重 + 按相关性粗排
-        seen_ids = set()
-        unique_candidates = []
+        # 全局去重
+        seen: set[str] = set()
+        unique: list[Product] = []
         for p in all_candidates:
-            if p.product_id not in seen_ids:
-                seen_ids.add(p.product_id)
-                unique_candidates.append(p)
+            if p.product_id not in seen:
+                seen.add(p.product_id)
+                unique.append(p)
 
-        # 用户画像重排：偏好品牌提权
-        if user_profile and user_profile.brand_weights:
-            unique_candidates.sort(
-                key=lambda p: (
-                    user_profile.brand_weights.get(p.brand, 0.5),
-                    p.rating or 0,
-                ),
-                reverse=True,
-            )
+        # 用户画像重排
+        unique = self._rerank(unique, user_profile, budget)
 
-        return unique_candidates[:top_k]
+        return unique[:top_k]
 
-    def _retrieve_category(
+    # ------------------------------------------------------------------
+    # 内部辅助
+    # ------------------------------------------------------------------
+
+    def _extract_attr_constraints(self, hard: dict[str, Any]) -> dict[str, Any]:
+        """将任务约束字典转换为商品属性过滤条件。"""
+        attrs: dict[str, Any] = {}
+        for key, value in hard.items():
+            if key in _NON_ATTR_CONSTRAINT_KEYS:
+                continue
+            mapped = _CONSTRAINT_TO_ATTR.get(key, key)
+            attrs[mapped] = value
+        return attrs
+
+    def _extract_keyword(self, query: str, category: str) -> Optional[str]:
+        """
+        从原始 query 中提取与品类相关的关键词。
+        简单实现：去除常用停用词后取最长词。
+        """
+        stopwords = {"帮我", "买", "一个", "一台", "一套", "推荐", "需要", "想要",
+                     "用的", "以内", "不超过", "预算", "元", "块", "价格", "越便宜越好"}
+        words = [w for w in query.split() if w not in stopwords and len(w) > 1]
+        return words[0] if words else None
+
+    def _merge_dedupe(self, primary: list[Product], extra: list[Product]) -> list[Product]:
+        """合并两个列表并去重（primary 优先）。"""
+        seen = {p.product_id for p in primary}
+        return primary + [p for p in extra if p.product_id not in seen]
+
+    def _rerank(
         self,
-        category: str,
-        budget: Optional[float],
-        delivery_days: Optional[int],
+        candidates: list[Product],
         user_profile: Optional[UserProfile],
-        top_k: int,
+        budget: Optional[float],
     ) -> list[Product]:
         """
-        单品类召回（mock 实现）。
-        生产环境替换为真实 API 调用。
+        基于用户画像重排候选列表。
+
+        得分 = rating_score + brand_bonus - price_penalty
+          rating_score  = rating / 5.0
+          brand_bonus   = brand_weight * 0.3（偏好品牌加权）
+          price_penalty = price_sensitivity * (final_price / budget) * 0.2
         """
-        # Mock：生成模拟商品数据
-        brands = ["Sony", "LG", "Samsung", "Xiaomi", "Huawei", "Apple",
-                  "Logitech", "IKEA", "Herman Miller"]
-        platforms = ["JD", "Tmall", "Taobao"]
-        products = []
+        def score(p: Product) -> float:
+            rating_score = (p.rating or 3.0) / 5.0
 
-        for i in range(min(top_k, 15)):
-            brand = random.choice(brands)
-            platform = random.choice(platforms)
-            base_price = random.uniform(200, budget * 0.8 if budget else 5000)
-            rating = round(random.uniform(4.0, 5.0), 1)
+            brand_bonus = 0.0
+            if user_profile and user_profile.brand_weights:
+                brand_bonus = user_profile.brand_weights.get(p.brand, 0.0) * 0.3
 
-            product = Product(
-                product_id=str(uuid.uuid4()),
-                title=f"{brand} {category} 旗舰款 {i + 1}号",
-                platform=platform,
-                price=round(base_price, 2),
-                original_price=round(base_price * 1.1, 2),
-                coupon_discount=round(base_price * 0.05, 2),
-                category=category,
-                brand=brand,
-                attributes=[
-                    ProductAttribute(name="重量", value=random.uniform(0.5, 3.0), unit="kg"),
-                    ProductAttribute(name="颜色", value=random.choice(["黑色", "白色", "银色"])),
-                ],
-                in_stock=random.random() > 0.1,
-                stock_count=random.randint(1, 500),
-                logistics=LogisticsInfo(
-                    platform=platform,
-                    delivery_days=random.randint(1, 5),
-                    delivery_fee=0.0 if base_price > 99 else 8.0,
-                    supports_return=True,
-                    return_days=7,
-                    is_official_store=random.random() > 0.4,
-                ),
-                rating=rating,
-                review_count=random.randint(100, 50000),
-                sales_volume=random.randint(500, 100000),
-            )
+            price_penalty = 0.0
+            if user_profile and budget:
+                sensitivity = getattr(user_profile, "price_sensitivity", 0.5)
+                price_penalty = sensitivity * (p.final_price / budget) * 0.2
 
-            # 物流约束过滤
-            if delivery_days and product.logistics:
-                if product.logistics.delivery_days > delivery_days:
-                    continue
+            return rating_score + brand_bonus - price_penalty
 
-            products.append(product)
-
-        return products
+        return sorted(candidates, key=score, reverse=True)
