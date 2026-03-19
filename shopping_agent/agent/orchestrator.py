@@ -5,13 +5,21 @@ Orchestrator — 主流程协调器。
 实现两条闭环：
   1. 任务执行闭环（理解 → 澄清 → 检索 → 规划 → 校验 → 执行 → 反馈）
   2. 持续学习闭环（反馈 → 归因 → 偏好更新）
+
+Option A 扩展：
+  - enable_rl_mode() 将 clarification_policy 和 planner 切换到 RL 模式
+  - train_rl() 触发 RLTrainer 的完整训练循环
+  - 训练完成后策略自动注入 clarification_policy 和 planner
 """
 
 from __future__ import annotations
 
 import time
 import uuid
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from shopping_agent.rl.trainer import RLTrainer
 
 from shopping_agent.agent.state import AgentState, WorkflowStep
 from shopping_agent.common.constants import CLARIFICATION_MAX_ROUNDS
@@ -56,15 +64,15 @@ class ShoppingAgentOrchestrator:
         )
     """
 
-    def __init__(self):
+    def __init__(self, use_rl: bool = False):
         # 初始化各模块
         self.intent_parser = IntentParser()
-        self.clarification_policy = ClarificationPolicy()
+        self.clarification_policy = ClarificationPolicy(use_rl=use_rl)
         self.preference_memory = PreferenceMemory()
         self.retriever = HybridRetriever()
         self.normalizer = ProductNormalizer()
         self.graph_builder = CandidateGraphBuilder()
-        self.planner = ConstraintAwarePlanner()
+        self.planner = ConstraintAwarePlanner(use_rl=use_rl)
         self.verifier = VerificationPipeline()
         self.explainer = Explainer()
         self.behavior_logger = BehaviorLogger()
@@ -72,6 +80,7 @@ class ShoppingAgentOrchestrator:
 
         # 会话存储（生产环境应替换为 Redis/DB）
         self._sessions: dict[str, AgentState] = {}
+        self._use_rl = use_rl
 
     # ---------------------------------------------------------------------------
     # 公开接口
@@ -120,6 +129,50 @@ class ShoppingAgentOrchestrator:
         state.feedback_records.append(record)
         self.behavior_logger.log(record)
         self.preference_updater.update(state.user_id, record)
+
+    # ---------------------------------------------------------------------------
+    # RL 训练接口（Option A）
+    # ---------------------------------------------------------------------------
+
+    def enable_rl_mode(self) -> None:
+        """
+        将 clarification_policy 和 planner 切换到 RL 模式。
+        可在运行时调用，无需重新初始化 orchestrator。
+        """
+        self._use_rl = True
+        self.clarification_policy.set_rl_mode(True)
+        self.planner.set_rl_mode(True)
+
+    def train_rl(
+        self,
+        num_iterations: int = 200,
+        episodes_per_iter: int = 32,
+        eval_interval: int = 20,
+        checkpoint_dir: str = "checkpoints",
+    ) -> list[dict]:
+        """
+        启动 REINFORCE 训练循环。
+
+        训练完成后，训练好的策略会自动注入 clarification_policy 和 planner，
+        后续调用 run() 时自动使用 RL 策略（RL 模式已开启）。
+
+        返回训练日志（每次迭代的 metrics）。
+        """
+        from shopping_agent.rl.trainer import RLTrainer
+
+        trainer = RLTrainer(
+            clarification_policy=self.clarification_policy,
+            planner=self.planner,
+            checkpoint_dir=checkpoint_dir,
+        )
+        logs = trainer.train(
+            num_iterations=num_iterations,
+            episodes_per_iter=episodes_per_iter,
+            eval_interval=eval_interval,
+        )
+        # 训练后切换到 RL 模式（策略已通过 trainer 更新）
+        self.enable_rl_mode()
+        return logs
 
     # ---------------------------------------------------------------------------
     # 核心工作流
@@ -228,19 +281,48 @@ class ShoppingAgentOrchestrator:
         """
         判断是否需要澄清，如需要则生成问题并返回问题文本。
         返回 None 表示无需澄清，继续流程。
+
+        RL 模式：调用 decide_rl() 单步决策（PROCEED 或 ASK_SLOT）。
+        启发式模式：原有逻辑，按信息增益排序后取最高分问题。
         """
         if state.clarification_rounds_used >= CLARIFICATION_MAX_ROUNDS:
             return None
         if state.task.uncertainty_score < 0.3:
             return None
 
+        if self._use_rl:
+            question, action, log_prob = self.clarification_policy.decide_rl(
+                task=state.task,
+                conversation_round=state.clarification_rounds_used,
+                user_profile=state.user_profile,
+                explore=False,  # 推理时不探索
+            )
+            if question is None:
+                # RL 策略决定 PROCEED
+                state.record_attribution(
+                    module="ClarificationPolicy(RL)",
+                    decision="PROCEED — RL策略决定不再澄清",
+                    rationale=f"action=PROCEED, log_prob={log_prob:.3f}",
+                )
+                return None
+
+            state.pending_clarifications = [question]
+            state.clarification_rounds_used += 1
+            state.record_attribution(
+                module="ClarificationPolicy(RL)",
+                decision=f"ASK_SLOT: {question.slot}",
+                rationale=f"RL策略决策, log_prob={log_prob:.3f}",
+                outputs_summary=question.question,
+            )
+            return question.question
+
+        # 启发式模式（原有逻辑）
         questions = self.clarification_policy.generate(
             state.task, state.user_profile
         )
         if not questions:
             return None
 
-        # 只取信息增益最高的一个问题
         best_question = max(questions, key=lambda q: q.info_gain)
         state.pending_clarifications = [best_question]
         state.clarification_rounds_used += 1
