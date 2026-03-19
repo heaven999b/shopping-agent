@@ -33,7 +33,7 @@ def main():
     parser.add_argument("--save", action="store_true", help="将报告保存到 logs/")
     parser.add_argument("--verbose", type=int, default=1, help="详细程度：0=只显示summary，1=逐任务（默认）")
     parser.add_argument("--output-dir", default="logs", help="报告保存目录")
-    parser.add_argument("--baseline-suite", action="store_true", help="运行 full/naive/constraint-only/no-memory/single-item/no-bundle-scoring 六组对比")
+    parser.add_argument("--baseline-suite", action="store_true", help="运行 full/naive-llm/no-clarification/no-constraint/no-memory/single-item/no-bundle-scoring 等 baseline 对比")
     parser.add_argument(
         "--mode",
         choices=["pipeline", "e2e"],
@@ -48,7 +48,10 @@ def main():
     if args.baseline_suite:
         suite = [
             ("full_agent", dict(use_rl=False, baseline_profile="full_agent")),
+            ("naive_llm_agent", dict(use_rl=False, baseline_profile="naive_llm_agent", disable_graph=True, disable_verifier=True, disable_clarification=True)),
             ("naive_retrieval", dict(use_rl=False, baseline_profile="naive_retrieval", disable_graph=True, disable_verifier=True, disable_clarification=True)),
+            ("no_clarification", dict(use_rl=False, baseline_profile="no_clarification", disable_clarification=True)),
+            ("no_constraint", dict(use_rl=False, baseline_profile="no_constraint")),
             ("constraint_only", dict(use_rl=False, baseline_profile="constraint_only")),
             ("no_memory", dict(use_rl=False, baseline_profile="no_memory")),
             ("single_item", dict(use_rl=False, baseline_profile="single_item")),
@@ -147,8 +150,11 @@ def _baseline_suite_rows(reports: dict[str, dict]) -> list[dict[str, str | float
         rows.append(
             {
                 "method": name,
-                "success_rate": round(metrics.get("success_rate", 0.0), 4),
+                "all_task_success_rate": round(metrics.get("success_rate", 0.0), 4),
+                "coverage": round(metrics.get("coverage", 0.0), 4),
+                "budget_satisfaction_rate": round(metrics.get("budget_satisfaction_rate", 0.0), 4),
                 "bundle_success_rate": round(bundle_summary.get("bundle_success_rate", 0.0), 4),
+                "bundle_task_count": int(bundle_summary.get("num_tasks", 0)),
                 "cost_band": cost_band,
                 "bundle_score": round(bundle_summary.get("avg_bundle_decision_score", metrics.get("avg_bundle_decision_score", 0.0)), 4),
                 "bundle_completeness": round(bundle_summary.get("avg_bundle_completeness_score", metrics.get("avg_bundle_completeness_score", 0.0)), 4),
@@ -165,14 +171,31 @@ def _baseline_suite_rows(reports: dict[str, dict]) -> list[dict[str, str | float
 def _baseline_suite_markdown(reports: dict[str, dict]) -> str:
     rows = _baseline_suite_rows(reports)
     lines = [
-        "| Method | Success | BundleSuccess | Cost | BundleScore | BundleCompleteness | Compatibility | RelationCoverage | LongTermFit | PhasedPurchase | RegretRisk |",
-        "|---|---:|---:|---|---:|---:|---:|---:|---:|---:|---:|",
+        "## All-Task Summary",
+        "",
+        "| Method | AllTaskSuccess | Coverage | BudgetSatisfaction | Cost |",
+        "|---|---:|---:|---:|---|",
     ]
     for row in rows:
         lines.append(
-            f"| {row['method']} | {row['success_rate']:.2%} | {row['bundle_success_rate']:.2%} | {row['cost_band']} | "
+            f"| {row['method']} | {row['all_task_success_rate']:.2%} | {row['coverage']:.2%} | "
+            f"{row['budget_satisfaction_rate']:.2%} | {row['cost_band']} |"
+        )
+    lines.extend(
+        [
+            "",
+            "## Bundle-Only Summary",
+            "",
+            "| Method | BundleTasks | BundleSuccess | BundleScore | BundleCompleteness | Compatibility | RelationCoverage | LongTermFit | PhasedPurchase | RegretRisk |",
+            "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+        ]
+    )
+    for row in rows:
+        lines.append(
+            f"| {row['method']} | {row['bundle_task_count']} | {row['bundle_success_rate']:.2%} | "
             f"{row['bundle_score']:.4f} | {row['bundle_completeness']:.4f} | "
-            f"{row['compatibility']:.4f} | {row['relation_coverage']:.4f} | {row['long_term_fit']:.4f} | {row['phased_purchase']:.4f} | {row['regret_risk']:.4f} |"
+            f"{row['compatibility']:.4f} | {row['relation_coverage']:.4f} | "
+            f"{row['long_term_fit']:.4f} | {row['phased_purchase']:.4f} | {row['regret_risk']:.4f} |"
         )
     return "\n".join(lines) + "\n"
 
@@ -184,8 +207,11 @@ def _write_baseline_suite_csv(path: Path, reports: dict[str, dict]) -> None:
             f,
             fieldnames=[
                 "method",
-                "success_rate",
+                "all_task_success_rate",
+                "coverage",
+                "budget_satisfaction_rate",
                 "bundle_success_rate",
+                "bundle_task_count",
                 "cost_band",
                 "bundle_score",
                 "bundle_completeness",

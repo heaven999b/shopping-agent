@@ -136,8 +136,8 @@ shopping_agent/
 └── common/             # types, exceptions, constants
 
 data/
-├── products.json       # 27 件示例商品（8 品类）
-└── tasks.json          # 66 条基准任务（其中 38 条 bundle 任务）
+├── products.json       # 83 件示例商品（8 品类，含价格梯度/风格差/互补空间）
+└── tasks.json          # 66 条基准任务（bundle-like 主表子集为 32 条）
 
 tests/                  # 93 个单元测试（pytest）
 ```
@@ -166,7 +166,7 @@ python main.py benchmark --compare
 python run_benchmark.py --mode pipeline   # 模块级 benchmark
 python run_benchmark.py --mode e2e        # 端到端 benchmark（走公开入口）
 python run_benchmark.py --mode e2e --save # 保存完整报告 + summary + metrics + per_task
-python run_benchmark.py --baseline-suite  # 运行 full / naive / constraint-only / no-memory / single-item / no_bundle_scoring 对比
+python run_benchmark.py --baseline-suite  # 运行 full / naive-llm / no-clarification / no-constraint / no-memory / single-item / no_bundle_scoring 对比
 
 # RL-enhanced 策略训练（增强模块）
 python main.py train --pretrain --synthetic

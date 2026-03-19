@@ -41,6 +41,7 @@ class TestBenchmarkRunnerModes:
         assert report["num_tasks"] == 1
         assert report["report_schema_version"] == "v2"
         assert "report_sections" in report
+        assert report["report_sections"]["evaluation_notes"]["understanding_metrics_mode"] == "proxy_from_structured_tasks"
 
     def test_e2e_mode_handles_clarification_task(self, tmp_path):
         tasks = [
@@ -74,6 +75,7 @@ class TestBenchmarkRunnerModes:
 
         assert report["benchmark_mode"] == "e2e"
         assert report["num_tasks"] == 1
+        assert report["report_sections"]["evaluation_notes"]["understanding_metrics_mode"] == "end_to_end"
         assert report["per_task"][0]["has_result"] is True
         assert report["per_task"][0]["clarification_turns"] >= 1
         assert "avg_parser_category_match" in report["metrics"]
@@ -197,6 +199,82 @@ class TestBenchmarkRunnerModes:
         assert "avg_long_term_fit_score" in report["metrics"]
         assert "avg_phased_purchase_score" in report["metrics"]
         assert report["metrics"]["task_family_summary"]["upgrade_path"]["num_tasks"] == 1
+
+    def test_e2e_user_profile_overrides_apply_before_planning(self, tmp_path):
+        tasks = [
+            {
+                "task_id": "tb005b",
+                "query": "帮我补一套办公桌搭，已经有键盘了，还差显示器和耳机，预算5000",
+                "task_type": "bundle",
+                "task_family": "upgrade_path",
+                "categories": ["monitor", "headset"],
+                "constraints": {
+                    "budget_total": {"value": 5000.0, "severity": "hard"},
+                },
+                "user_profile_overrides": {
+                    "owned_items": [
+                        {"product_id": "owned_keyboard", "category": "keyboard", "brand": "Logitech"}
+                    ],
+                    "active_setups": {
+                        "monitor_setup": {
+                            "owned": ["owned_keyboard"],
+                            "missing": ["monitor_arm"],
+                            "style": "clean",
+                            "next_best_upgrade": "monitor_arm"
+                        }
+                    },
+                    "upgrade_stage": {"monitor_setup": "growing"},
+                    "purchase_rhythm": {"avg_spend": 1200.0, "purchase_count": 3, "cadence": "incremental"}
+                },
+                "uncertainty_slots": {},
+                "expected": {
+                    "required_attrs": [],
+                    "gold_categories": ["monitor", "headset"]
+                },
+            }
+        ]
+        tasks_path = tmp_path / "tasks_e2e_profile.json"
+        tasks_path.write_text(json.dumps(tasks, ensure_ascii=False), encoding="utf-8")
+
+        runner = BenchmarkRunner(
+            benchmark_mode="e2e",
+            tasks_path=str(tasks_path),
+            output_dir=str(tmp_path / "logs"),
+            baseline_profile="no_memory",
+        )
+        report = runner.run(verbose=False)
+
+        assert report["per_task"][0]["original_task_family"] == "upgrade_path"
+        assert report["per_task"][0]["long_term_fit_score"] == 0.0
+
+    def test_parser_match_uses_original_gold_categories(self, tmp_path):
+        tasks = [
+            {
+                "task_id": "tb005c",
+                "query": "帮我补一套桌搭，显示器和耳机都要",
+                "task_type": "bundle",
+                "categories": ["monitor", "headset"],
+                "constraints": {
+                    "budget_total": {"value": 5000.0, "severity": "hard"},
+                },
+                "expected": {
+                    "gold_categories": ["monitor", "headset"]
+                },
+            }
+        ]
+        tasks_path = tmp_path / "tasks_parser_eval.json"
+        tasks_path.write_text(json.dumps(tasks, ensure_ascii=False), encoding="utf-8")
+
+        runner = BenchmarkRunner(
+            benchmark_mode="pipeline",
+            tasks_path=str(tasks_path),
+            output_dir=str(tmp_path / "logs"),
+            baseline_profile="single_item",
+        )
+        report = runner.run(verbose=False)
+
+        assert report["per_task"][0]["original_task_family"] == "bundle"
+        assert report["per_task"][0]["parser_category_match"] < 1.0
 
     def test_save_report_writes_summary_and_metrics_artifacts(self, tmp_path):
         tasks = [
@@ -358,6 +436,67 @@ class TestBenchmarkRunnerModes:
         assert state.user_profile.upgrade_stage == {}
         assert state.user_profile.purchase_rhythm == {}
 
+    def test_no_constraint_baseline_strips_constraints_from_task(self, tmp_path):
+        tasks = [
+            {
+                "task_id": "tb008c",
+                "query": "预算 5000 内给我配显示器和键盘",
+                "task_type": "bundle",
+                "categories": ["monitor", "keyboard"],
+                "constraints": {
+                    "budget_total": {"value": 5000.0, "severity": "hard"},
+                    "noise_cancelling": {"value": True, "severity": "soft"},
+                },
+                "uncertainty_slots": {},
+                "expected": {"required_attrs": []},
+            }
+        ]
+        tasks_path = tmp_path / "tasks_no_constraint.json"
+        tasks_path.write_text(json.dumps(tasks, ensure_ascii=False), encoding="utf-8")
+
+        runner = BenchmarkRunner(
+            benchmark_mode="pipeline",
+            tasks_path=str(tasks_path),
+            output_dir=str(tmp_path / "logs"),
+            baseline_profile="no_constraint",
+        )
+        runner.run(verbose=False)
+
+        state = next(iter(runner.orchestrator._sessions.values()))
+        assert state.task is not None
+        assert state.task.constraints == []
+
+    def test_no_clarification_baseline_clears_uncertainty_slots(self, tmp_path):
+        tasks = [
+            {
+                "task_id": "tb008d",
+                "query": "想配桌搭但预算和用途还没想好",
+                "task_type": "bundle",
+                "categories": ["monitor", "keyboard"],
+                "constraints": {},
+                "uncertainty_slots": {
+                    "budget_total": None,
+                    "usage_scenario": None,
+                },
+                "clarification_needed": True,
+                "expected": {"required_attrs": []},
+            }
+        ]
+        tasks_path = tmp_path / "tasks_no_clarification.json"
+        tasks_path.write_text(json.dumps(tasks, ensure_ascii=False), encoding="utf-8")
+
+        runner = BenchmarkRunner(
+            benchmark_mode="pipeline",
+            tasks_path=str(tasks_path),
+            output_dir=str(tmp_path / "logs"),
+            baseline_profile="no_clarification",
+        )
+        runner.run(verbose=False)
+
+        state = next(iter(runner.orchestrator._sessions.values()))
+        assert state.task is not None
+        assert state.task.uncertainty_slots == {}
+
     def test_baseline_suite_writers_emit_markdown_and_csv(self, tmp_path):
         reports = {
             "full_agent": {
@@ -396,7 +535,10 @@ class TestBenchmarkRunnerModes:
         }
 
         md = _baseline_suite_markdown(reports)
-        assert "| Method | Success | BundleSuccess | Cost | BundleScore |" in md
+        assert "## All-Task Summary" in md
+        assert "## Bundle-Only Summary" in md
+        assert "AllTaskSuccess" in md
+        assert "BundleTasks" in md
         assert "RelationCoverage" in md
         assert "full_agent" in md
         assert "no_memory" in md
@@ -404,7 +546,7 @@ class TestBenchmarkRunnerModes:
         csv_path = Path(tmp_path / "baseline_suite.csv")
         _write_baseline_suite_csv(csv_path, reports)
         text = csv_path.read_text(encoding="utf-8")
-        assert "method,success_rate,bundle_success_rate,cost_band,bundle_score" in text
+        assert "method,all_task_success_rate,coverage,budget_satisfaction_rate,bundle_success_rate,bundle_task_count,cost_band,bundle_score" in text
         assert "relation_coverage" in text
         assert "full_agent" in text
         assert "no_memory" in text

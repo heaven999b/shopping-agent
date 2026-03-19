@@ -304,6 +304,14 @@ class BenchmarkRunner:
                 "summary_metrics": metrics,
                 "task_family_summary": metrics.get("task_family_summary", {}),
                 "per_task_results": per_task,
+                "evaluation_notes": {
+                    "understanding_metrics_mode": (
+                        "end_to_end"
+                        if self._benchmark_mode == "e2e"
+                        else "proxy_from_structured_tasks"
+                    ),
+                    "bundle_primary_view": "bundle_summary",
+                },
             },
         }
 
@@ -511,7 +519,8 @@ class BenchmarkRunner:
         result.drift_expected = drift_expected
 
         try:
-            response = self.orchestrator.run(user_id=self.user_id, user_input=query)
+            run_user_id = self._prepare_e2e_user_profile(raw)
+            response = self.orchestrator.run(user_id=run_user_id, user_input=query)
             session_id = response["session_id"]
             clarification_turns = 0
 
@@ -527,12 +536,6 @@ class BenchmarkRunner:
             state = self.orchestrator._sessions.get(session_id)
             if state is None:
                 raise RuntimeError(f"Benchmark session not found: {session_id}")
-            if raw.get("user_profile_overrides"):
-                state.user_profile = _apply_user_profile_overrides(
-                    state.user_profile or UserProfile(user_id=self.user_id),
-                    raw["user_profile_overrides"],
-                )
-            state.user_profile = self._apply_profile_baseline_profile(state.user_profile)
 
             result = self._populate_result_from_state(
                 result=result,
@@ -575,11 +578,21 @@ class BenchmarkRunner:
             return raw
 
         profiled = copy.deepcopy(raw)
+        if self._baseline_profile == "no_constraint":
+            profiled["constraints"] = {}
+            profiled["brands_preferred"] = []
+            profiled["brand_preferences"] = []
+            profiled["preferred_platforms"] = []
+            profiled["required_attrs"] = {}
+            return profiled
         if self._baseline_profile == "single_item":
             categories = profiled.get("categories", [])
             if categories:
                 profiled["categories"] = categories[:1]
             profiled["task_type"] = "single"
+        if self._baseline_profile == "no_clarification":
+            profiled["uncertainty_slots"] = {}
+            profiled["clarification_needed"] = False
         return profiled
 
     def _apply_profile_baseline_profile(
@@ -591,14 +604,25 @@ class BenchmarkRunner:
         if self._baseline_profile == "full_agent":
             return profile
 
-        if self._baseline_profile in {"naive_retrieval", "constraint_only", "no_memory"}:
+        if self._baseline_profile in {
+            "naive_retrieval",
+            "naive_llm_agent",
+            "constraint_only",
+            "no_memory",
+            "no_constraint",
+        }:
             profile.owned_items = []
             profile.active_setups = {}
             profile.upgrade_stage = {}
             profile.purchase_rhythm = {}
             profile.aspiration_signals = []
 
-        if self._baseline_profile in {"naive_retrieval", "constraint_only"}:
+        if self._baseline_profile in {
+            "naive_retrieval",
+            "naive_llm_agent",
+            "constraint_only",
+            "no_constraint",
+        }:
             profile.identity_goal = {}
             profile.budget_sensitivity_profile = {}
             profile.brand_orientation = {}
@@ -607,13 +631,24 @@ class BenchmarkRunner:
             profile.recent_persona_drift = {}
             profile.persona_transition_log = []
 
-        if self._baseline_profile == "naive_retrieval":
+        if self._baseline_profile in {"naive_retrieval", "naive_llm_agent", "no_constraint"}:
             profile.brand_weights = {}
             profile.platform_preferences = {}
             profile.category_affinity = {}
             profile.style_tags = []
 
         return profile
+
+    def _prepare_e2e_user_profile(self, raw: dict[str, Any]) -> str:
+        user_id = f"{self.user_id}_{self._baseline_profile}_{raw['task_id']}"
+        profile = self.orchestrator.preference_memory.load(user_id)
+        if raw.get("user_profile_overrides"):
+            profile = _apply_user_profile_overrides(profile, raw["user_profile_overrides"])
+        profile = self._apply_profile_baseline_profile(profile)
+        if profile is not None:
+            profile.user_id = user_id
+            self.orchestrator.preference_memory.save(profile)
+        return user_id
 
     def _populate_result_from_state(
         self,
@@ -628,9 +663,10 @@ class BenchmarkRunner:
         result.clarification_expected = raw.get("clarification_needed", False)
         result.clarification_alignment = 1.0 if result.clarification_expected == (result.clarification_turns > 0) else 0.0
         result.feasibility_expected = expected.get("feasible", True)
+        gold_categories = _gold_categories_for_eval(raw, original_raw)
         result.parser_category_match = _safe_ratio_overlap(
             state.task.categories if state.task else [],
-            expected.get("gold_categories", raw.get("categories", [])),
+            gold_categories,
         )
 
         result.has_result = state.selected_plan is not None
@@ -671,7 +707,6 @@ class BenchmarkRunner:
             result.constraint_hit_rate = _check_required_attrs(
                 plan_items_with_attrs, required_attrs
             )
-            gold_categories = _gold_categories_for_eval(raw, original_raw)
             result.plan_category_match = _safe_ratio_overlap(
                 [item.product.category for item in state.selected_plan.items],
                 gold_categories,
