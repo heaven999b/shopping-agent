@@ -210,6 +210,7 @@ class ConstraintAwarePlanner:
         total_constraint_score = 0.0
         total_preference_score = 0.0
         total_value_score = 0.0
+        total_persona_score = 0.0
 
         for category in task.categories:
             candidates = slot_candidates.get(category, [])
@@ -226,6 +227,7 @@ class ConstraintAwarePlanner:
             total_constraint_score += scores["constraint"]
             total_preference_score += scores["preference"]
             total_value_score += scores["value"]
+            total_persona_score += scores["persona"]
 
             # 找同品类其他候选作为备选
             alternatives = [p for p in candidates if p.product_id != product.product_id][:2]
@@ -234,6 +236,7 @@ class ConstraintAwarePlanner:
                 bundle_slot=category,
                 product=product,
                 reason=self._build_reason(product, strategy, scores),
+                persona_reason=self._build_persona_reason(product, user_profile),
                 alternatives=alternatives,
             ))
 
@@ -244,8 +247,33 @@ class ConstraintAwarePlanner:
         avg_constraint = total_constraint_score / n
         avg_preference = total_preference_score / n
         avg_value = total_value_score / n
+        avg_persona = total_persona_score / n
+        style_coherence = self._style_coherence_score(items)
+        scenario_fit = self._scenario_fit_score(task, items, user_profile)
+        bundle_completeness = self._bundle_completeness_score(task, items)
+        budget_allocation = self._budget_allocation(items, budget)
+        phased_options = self._build_phased_purchase_options(
+            task, items, budget, user_profile
+        )
 
-        tradeoff_notes = self._build_tradeoff_notes(tier_name, avg_constraint, total_price, budget)
+        tradeoff_notes = self._build_tradeoff_notes(
+            tier_name,
+            avg_constraint,
+            total_price,
+            budget,
+            avg_persona,
+            user_profile,
+        )
+        tradeoff_notes.extend(
+            self._build_bundle_tradeoff_notes(
+                task,
+                style_coherence,
+                scenario_fit,
+                total_price,
+                budget,
+                phased_options,
+            )
+        )
 
         return CandidatePlan(
             plan_id=str(uuid.uuid4()),
@@ -256,8 +284,19 @@ class ConstraintAwarePlanner:
             constraint_score=round(avg_constraint, 3),
             preference_score=round(avg_preference, 3),
             value_score=round(avg_value, 3),
+            persona_alignment_score=round(avg_persona, 3),
+            style_coherence_score=round(style_coherence, 3),
+            scenario_fit_score=round(scenario_fit, 3),
+            bundle_completeness_score=round(bundle_completeness, 3),
             tradeoff_notes=tradeoff_notes,
-            explanation=self._build_explanation(tier_name, items, total_price, budget),
+            explanation=self._build_explanation(
+                tier_name, items, total_price, budget, avg_persona, user_profile
+            ),
+            persona_summary=self._build_persona_summary(items, user_profile),
+            bundle_type="bundle_plan" if len(task.categories) > 1 else "single_item",
+            bundle_objective=self._bundle_objective(task),
+            budget_allocation=budget_allocation,
+            phased_purchase_options=phased_options,
         )
 
     def _select_product(
@@ -293,6 +332,7 @@ class ConstraintAwarePlanner:
             "constraint": self._constraint_score(product, per_slot_budget),
             "preference": self._preference_score(product, user_profile),
             "value": self._value_score(product, per_slot_budget),
+            "persona": self._persona_alignment_score(product, user_profile),
         }
         return product, scores
 
@@ -335,15 +375,17 @@ class ConstraintAwarePlanner:
                 "constraint": self._constraint_score(product, per_slot_budget),
                 "preference": self._preference_score(product, user_profile),
                 "value": self._value_score(product, per_slot_budget),
+                "persona": self._persona_alignment_score(product, user_profile),
             }
             items.append(PlanItem(
                 bundle_slot=category,
                 product=product,
                 reason=f"RL策略: {self._action_desc(action)}",
+                persona_reason=self._build_persona_reason(product, user_profile),
                 alternatives=[p for p in candidates if p.product_id != product.product_id][:2],
             ))
 
-        rl_plan = self._assemble_plan(task, items, budget, "RL最优方案")
+        rl_plan = self._assemble_plan(task, items, budget, "RL最优方案", user_profile)
         backup = self._plan_heuristic(task, slot_candidates, budget, user_profile)
         return ([rl_plan] if rl_plan else []) + backup
 
@@ -379,6 +421,7 @@ class ConstraintAwarePlanner:
             SCORE_WEIGHT_CONSTRAINT * self._constraint_score(p, per_slot_budget)
             + SCORE_WEIGHT_PREFERENCE * self._preference_score(p, user_profile)
             + SCORE_WEIGHT_VALUE * self._value_score(p, per_slot_budget)
+            + 0.15 * self._persona_alignment_score(p, user_profile)
         )
 
     @staticmethod
@@ -412,6 +455,40 @@ class ConstraintAwarePlanner:
         price_ratio = min(p.final_price / per_slot_budget, 2.0)
         return rating_norm * max(0.0, 1.0 - price_ratio * 0.3)
 
+    @staticmethod
+    def _persona_alignment_score(
+        p: Product, user_profile: Optional[UserProfile]
+    ) -> float:
+        if user_profile is None:
+            return 0.0
+
+        tags = p.persona_tags or {}
+        score = 0.0
+
+        identity_pref = getattr(user_profile, "identity_goal", {})
+        for tag in tags.get("identity_fit", []):
+            score += identity_pref.get(tag, 0.0) * 0.22
+
+        aesthetic_pref = getattr(user_profile, "aesthetic_preference", {})
+        for tag in tags.get("style_signal", []):
+            score += aesthetic_pref.get(tag, 0.0) * 0.18
+
+        brand_pref = getattr(user_profile, "brand_orientation", {})
+        symbolic_value = tags.get("symbolic_value", "utilitarian")
+        if symbolic_value == "taste_signaling":
+            score += brand_pref.get("brand_signal", 0.0) * 0.16
+        elif symbolic_value == "utilitarian":
+            score += brand_pref.get("function_first", 0.0) * 0.14
+
+        budget_profile = getattr(user_profile, "budget_sensitivity_profile", {})
+        if p.final_price >= 1800:
+            score += budget_profile.get("premium", 0.0) * 0.12
+        elif p.final_price <= 800:
+            score += budget_profile.get("strict", 0.0) * 0.12
+
+        stability = getattr(user_profile, "persona_stability", 0.5)
+        return min(1.0, score * max(0.4, min(1.0, stability)))
+
     # ------------------------------------------------------------------
     # 辅助
     # ------------------------------------------------------------------
@@ -433,7 +510,12 @@ class ConstraintAwarePlanner:
         return result
 
     def _assemble_plan(
-        self, task: ShoppingTask, items: list[PlanItem], budget: float, tier_name: str
+        self,
+        task: ShoppingTask,
+        items: list[PlanItem],
+        budget: float,
+        tier_name: str,
+        user_profile: Optional[UserProfile] = None,
     ) -> Optional[CandidatePlan]:
         total = sum(i.product.final_price for i in items)
         if not items:
@@ -441,8 +523,18 @@ class ConstraintAwarePlanner:
         n = len(items)
         per_slot = budget / max(n, 1)
         constraint_score = sum(self._constraint_score(i.product, per_slot) for i in items) / n
-        preference_score = sum(self._preference_score(i.product, None) for i in items) / n
+        preference_score = sum(self._preference_score(i.product, user_profile) for i in items) / n
         value_score = sum(self._value_score(i.product, per_slot) for i in items) / n
+        persona_score = sum(
+            self._persona_alignment_score(i.product, user_profile) for i in items
+        ) / n
+        style_coherence = self._style_coherence_score(items)
+        scenario_fit = self._scenario_fit_score(task, items, user_profile)
+        bundle_completeness = self._bundle_completeness_score(task, items)
+        budget_allocation = self._budget_allocation(items, budget)
+        phased_options = self._build_phased_purchase_options(
+            task, items, budget, user_profile
+        )
         return CandidatePlan(
             plan_id=str(uuid.uuid4()),
             task_id=task.task_id,
@@ -452,8 +544,26 @@ class ConstraintAwarePlanner:
             constraint_score=round(constraint_score, 3),
             preference_score=round(preference_score, 3),
             value_score=round(value_score, 3),
-            tradeoff_notes=self._build_tradeoff_notes(tier_name, constraint_score, total, budget),
-            explanation=self._build_explanation(tier_name, items, total, budget),
+            persona_alignment_score=round(persona_score, 3),
+            style_coherence_score=round(style_coherence, 3),
+            scenario_fit_score=round(scenario_fit, 3),
+            bundle_completeness_score=round(bundle_completeness, 3),
+            tradeoff_notes=self._build_tradeoff_notes(
+                tier_name,
+                constraint_score,
+                total,
+                budget,
+                persona_score,
+                user_profile,
+            ),
+            explanation=self._build_explanation(
+                tier_name, items, total, budget, persona_score, user_profile
+            ),
+            persona_summary=self._build_persona_summary(items, user_profile),
+            bundle_type="bundle_plan" if len(task.categories) > 1 else "single_item",
+            bundle_objective=self._bundle_objective(task),
+            budget_allocation=budget_allocation,
+            phased_purchase_options=phased_options,
         )
 
     @staticmethod
@@ -462,12 +572,18 @@ class ConstraintAwarePlanner:
         desc = strategy_desc.get(strategy, "推荐")
         return (
             f"{desc}选择：{product.brand} {product.title[:20]}，"
-            f"售价¥{product.final_price:.0f}，评分{product.rating}"
+            f"售价¥{product.final_price:.0f}，评分{product.rating}，"
+            f"画像匹配{scores.get('persona', 0.0):.0%}"
         )
 
     @staticmethod
     def _build_tradeoff_notes(
-        tier_name: str, constraint_score: float, total: float, budget: float
+        tier_name: str,
+        constraint_score: float,
+        total: float,
+        budget: float,
+        persona_score: float,
+        user_profile: Optional[UserProfile],
     ) -> list[TradeoffNote]:
         notes = []
         if total > budget:
@@ -488,16 +604,249 @@ class ConstraintAwarePlanner:
                 note="优先选择高评分商品，价格可能略高",
                 severity="info",
             ))
+        if user_profile and persona_score >= 0.55:
+            notes.append(TradeoffNote(
+                dimension="persona",
+                note="这套方案与当前用户画像较为一致，优先保留了风格表达和身份匹配。",
+                severity="info",
+            ))
+        elif user_profile and persona_score < 0.3:
+            notes.append(TradeoffNote(
+                dimension="persona",
+                note="这套方案在功能和预算上更稳妥，但对当前画像表达的贴合度相对一般。",
+                severity="info",
+            ))
         return notes
 
     @staticmethod
     def _build_explanation(
-        tier_name: str, items: list[PlanItem], total: float, budget: float
+        tier_name: str,
+        items: list[PlanItem],
+        total: float,
+        budget: float,
+        persona_score: float,
+        user_profile: Optional[UserProfile],
     ) -> str:
         lines = [f"【{tier_name}】总计¥{total:.0f}（预算¥{budget:.0f}）"]
+        if user_profile:
+            lines.append(f"画像匹配度：{persona_score:.0%}")
         for item in items:
             lines.append(
                 f"  · {item.bundle_slot}: {item.product.brand} {item.product.title[:20]}"
                 f" ¥{item.product.final_price:.0f} (★{item.product.rating})"
             )
         return "\n".join(lines)
+
+    @staticmethod
+    def _build_persona_reason(
+        product: Product,
+        user_profile: Optional[UserProfile],
+    ) -> str:
+        if user_profile is None:
+            return ""
+
+        tags = product.persona_tags or {}
+        reasons: list[str] = []
+
+        identity_pref = getattr(user_profile, "identity_goal", {})
+        identity_fit = [
+            tag for tag in tags.get("identity_fit", [])
+            if identity_pref.get(tag, 0.0) >= 0.4
+        ]
+        if identity_fit:
+            reasons.append(f"更贴近你当前偏好的{identity_fit[0]}路线")
+
+        aesthetic_pref = getattr(user_profile, "aesthetic_preference", {})
+        style_fit = [
+            tag for tag in tags.get("style_signal", [])
+            if aesthetic_pref.get(tag, 0.0) >= 0.4
+        ]
+        if style_fit:
+            reasons.append(f"风格上更偏{style_fit[0]}")
+
+        brand_pref = getattr(user_profile, "brand_orientation", {})
+        symbolic_value = tags.get("symbolic_value")
+        if symbolic_value == "taste_signaling" and brand_pref.get("brand_signal", 0.0) >= 0.5:
+            reasons.append("品牌辨识度更强")
+        elif symbolic_value == "utilitarian" and brand_pref.get("function_first", 0.0) >= 0.5:
+            reasons.append("更偏实用导向")
+
+        if not reasons:
+            return ""
+        return "；".join(reasons[:2])
+
+    def _build_persona_summary(
+        self,
+        items: list[PlanItem],
+        user_profile: Optional[UserProfile],
+    ) -> str:
+        if user_profile is None or not items:
+            return ""
+
+        reasons = [item.persona_reason for item in items if item.persona_reason]
+        if reasons:
+            return "；".join(reasons[:2])
+
+        strongest_identity = self._top_persona_label(getattr(user_profile, "identity_goal", {}))
+        strongest_style = self._top_persona_label(
+            getattr(user_profile, "aesthetic_preference", {})
+        )
+        summary_parts = []
+        if strongest_identity:
+            summary_parts.append(f"整体更靠近{strongest_identity}定位")
+        if strongest_style:
+            summary_parts.append(f"风格上偏{strongest_style}")
+        return "；".join(summary_parts)
+
+    @staticmethod
+    def _top_persona_label(weights: dict[str, float]) -> str:
+        if not weights:
+            return ""
+        return max(weights.items(), key=lambda item: item[1])[0]
+
+    @staticmethod
+    def _bundle_objective(task: ShoppingTask) -> str:
+        if task.task_type.value == "bundle":
+            return f"为{ '、'.join(task.categories) }生成一套可协同购买的组合方案"
+        if len(task.categories) > 1:
+            return f"为{ '、'.join(task.categories) }做组合补齐"
+        return f"为{task.categories[0] if task.categories else '当前需求'}选择最合适单品"
+
+    @staticmethod
+    def _budget_allocation(items: list[PlanItem], budget: float) -> dict[str, float]:
+        if budget <= 0:
+            return {}
+        allocation = {}
+        for item in items:
+            allocation[item.bundle_slot] = round(item.product.final_price / budget, 3)
+        return allocation
+
+    @staticmethod
+    def _style_coherence_score(items: list[PlanItem]) -> float:
+        if len(items) <= 1:
+            return 1.0
+        tag_sets = [
+            set(item.product.persona_tags.get("style_signal", []))
+            for item in items
+            if item.product.persona_tags
+        ]
+        if not tag_sets:
+            return 0.5
+        shared = set.intersection(*tag_sets) if len(tag_sets) > 1 else tag_sets[0]
+        union = set.union(*tag_sets)
+        if not union:
+            return 0.5
+        return max(0.2, len(shared) / len(union))
+
+    @staticmethod
+    def _scenario_fit_score(
+        task: ShoppingTask,
+        items: list[PlanItem],
+        user_profile: Optional[UserProfile],
+    ) -> float:
+        if not items:
+            return 0.0
+        score = 0.45 if len({item.bundle_slot for item in items}) == len(task.categories) else 0.2
+        if any("商务" in need or "办公" in need for need in task.implicit_needs):
+            professional_hits = sum(
+                1
+                for item in items
+                if "professional" in item.product.persona_tags.get("identity_fit", [])
+            )
+            score += 0.35 * (professional_hits / len(items))
+        elif user_profile and user_profile.identity_goal:
+            target = max(user_profile.identity_goal.items(), key=lambda item: item[1])[0]
+            hits = sum(
+                1
+                for item in items
+                if target in item.product.persona_tags.get("identity_fit", [])
+            )
+            score += 0.25 * (hits / len(items))
+        return min(1.0, score)
+
+    @staticmethod
+    def _bundle_completeness_score(task: ShoppingTask, items: list[PlanItem]) -> float:
+        if not task.categories:
+            return 1.0
+        covered = {item.bundle_slot for item in items}
+        return len(covered) / len(task.categories)
+
+    def _build_phased_purchase_options(
+        self,
+        task: ShoppingTask,
+        items: list[PlanItem],
+        budget: float,
+        user_profile: Optional[UserProfile],
+    ) -> list[dict[str, Any]]:
+        if not items:
+            return []
+
+        sorted_items = sorted(
+            items,
+            key=lambda item: (
+                self._persona_alignment_score(item.product, user_profile),
+                item.product.rating or 0.0,
+                -item.product.final_price,
+            ),
+            reverse=True,
+        )
+        phase_one_items = [sorted_items[0]]
+        later_items = sorted_items[1:]
+        conservative_item = min(items, key=lambda item: item.product.final_price)
+
+        return [
+            {
+                "route": "一步到位",
+                "goal": "一次性完成当前组合需求",
+                "slots": [item.bundle_slot for item in items],
+                "budget": round(sum(item.product.final_price for item in items), 2),
+            },
+            {
+                "route": "分阶段升级",
+                "goal": "先补核心件，再提升整体一致性",
+                "phase_1_slots": [item.bundle_slot for item in phase_one_items],
+                "phase_2_slots": [item.bundle_slot for item in later_items],
+                "phase_1_budget": round(sum(item.product.final_price for item in phase_one_items), 2),
+                "phase_2_budget": round(sum(item.product.final_price for item in later_items), 2),
+            },
+            {
+                "route": "保守路线",
+                "goal": "先用最低风险方式建立基础组合",
+                "slots": [conservative_item.bundle_slot],
+                "budget": round(conservative_item.product.final_price, 2),
+            },
+        ]
+
+    @staticmethod
+    def _build_bundle_tradeoff_notes(
+        task: ShoppingTask,
+        style_coherence: float,
+        scenario_fit: float,
+        total: float,
+        budget: float,
+        phased_options: list[dict[str, Any]],
+    ) -> list[TradeoffNote]:
+        notes: list[TradeoffNote] = []
+        if len(task.categories) > 1 and style_coherence < 0.45:
+            notes.append(TradeoffNote(
+                dimension="style",
+                note="当前组合在风格统一性上偏一般，更适合先补齐功能核心件再做整体升级。",
+                severity="info",
+            ))
+        if len(task.categories) > 1 and scenario_fit < 0.55:
+            notes.append(TradeoffNote(
+                dimension="scenario",
+                note="这套组合能满足核心需求，但与当前使用场景的贴合度还有提升空间。",
+                severity="info",
+            ))
+        if total > budget * 0.85 and phased_options:
+            phase = phased_options[1]
+            notes.append(TradeoffNote(
+                dimension="phasing",
+                note=(
+                    f"如果想降低一次性预算压力，可以先走“{phase['route']}”，"
+                    f"首阶段预算约¥{phase.get('phase_1_budget', 0):.0f}。"
+                ),
+                severity="info",
+            ))
+        return notes

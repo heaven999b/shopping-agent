@@ -174,6 +174,22 @@ class UserProfile:
     interaction_signal_counts: dict[str, int] = field(default_factory=dict)
     budget_anchor_history: list[float] = field(default_factory=list)
 
+    # Persona state（最小可用版本）
+    identity_goal: dict[str, float] = field(default_factory=dict)
+    budget_sensitivity_profile: dict[str, float] = field(default_factory=dict)
+    brand_orientation: dict[str, float] = field(default_factory=dict)
+    aesthetic_preference: dict[str, float] = field(default_factory=dict)
+    persona_stability: float = 0.5
+    recent_persona_drift: dict[str, Any] = field(default_factory=dict)
+    persona_transition_log: list[dict[str, Any]] = field(default_factory=list)
+
+    # Long-horizon profile
+    owned_items: list[dict[str, Any]] = field(default_factory=list)
+    active_setups: dict[str, dict[str, Any]] = field(default_factory=dict)
+    upgrade_stage: dict[str, str] = field(default_factory=dict)
+    purchase_rhythm: dict[str, Any] = field(default_factory=dict)
+    aspiration_signals: list[dict[str, Any]] = field(default_factory=list)
+
     # 履约偏好
     prefer_fast_delivery: bool = False
     prefer_official_store: bool = True
@@ -243,6 +259,9 @@ class Product:
     source_url: Optional[str] = None
     image_url: Optional[str] = None
 
+    # Persona-facing tags
+    persona_tags: dict[str, Any] = field(default_factory=dict)
+
     def is_fresh(self) -> bool:
         elapsed = (datetime.now() - self.fetched_at).total_seconds()
         return elapsed < self.ttl_seconds
@@ -264,6 +283,7 @@ class PlanItem:
     bundle_slot: str                 # 对应 ShoppingTask 中的哪个品类坑位
     product: Product
     reason: str                      # 为什么选这个
+    persona_reason: str = ""
     alternatives: list[Product] = field(default_factory=list)
 
 
@@ -296,16 +316,31 @@ class CandidatePlan:
     constraint_score: float = 0.0    # 约束满足度 0~1
     preference_score: float = 0.0    # 偏好匹配度 0~1
     value_score: float = 0.0         # 性价比 0~1
+    persona_alignment_score: float = 0.0  # 用户画像匹配度 0~1
+    style_coherence_score: float = 0.0
+    scenario_fit_score: float = 0.0
+    bundle_completeness_score: float = 0.0
 
     @property
     def overall_score(self) -> float:
-        return (self.constraint_score * 0.5 +
-                self.preference_score * 0.3 +
-                self.value_score * 0.2)
+        return (
+            self.constraint_score * 0.32
+            + self.preference_score * 0.18
+            + self.value_score * 0.12
+            + self.persona_alignment_score * 0.14
+            + self.style_coherence_score * 0.1
+            + self.scenario_fit_score * 0.08
+            + self.bundle_completeness_score * 0.06
+        )
 
     # 方案说明
     tradeoff_notes: list[TradeoffNote] = field(default_factory=list)
     explanation: str = ""
+    persona_summary: str = ""
+    bundle_type: str = "single_item"
+    bundle_objective: str = ""
+    budget_allocation: dict[str, float] = field(default_factory=dict)
+    phased_purchase_options: list[dict[str, Any]] = field(default_factory=list)
 
     # 校验状态（由 Verifier 填写）
     verification_status: VerificationStatus = VerificationStatus.PASS

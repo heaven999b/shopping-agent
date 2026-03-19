@@ -30,6 +30,7 @@
 2. **Hybrid Retrieval** — 关键词精确过滤 + TF-IDF 字符级 n-gram 语义向量召回，覆盖中文近义词
 3. **Actor-Critic RL（GAE）** — 澄清策略 π_θ 和规划策略 π_φ 用 GAE（Generalized Advantage Estimation）替代原始 REINFORCE，配套线性 Critic V(s) 大幅降低梯度方差
 4. **Constraint Relaxation** — 在检索/规划失败时自动诊断约束冲突，生成排序松弛方案（软约束优先 → 预算扩增 → 属性降级）
+5. **Persona-aware Planning** — 用户画像扩展为最小 persona state，商品支持 `persona_tags`，检索重排与方案解释会联合考虑身份表达、审美偏好与预算人格
 
 ### 两条闭环
 
@@ -153,7 +154,12 @@ pytest
 - 可行性判断对齐率 `feasibility_alignment_rate`
 - 意图收敛分 `avg_intent_resolution_score`
 - 执行就绪分 `avg_execution_readiness_score`
+- 方案画像匹配均值 `avg_plan_persona_alignment_score`
+- 单品画像理由覆盖率 `avg_persona_reason_coverage`
+- drift 检测率 `drift_detection_rate`
+- drift 对齐分 `avg_drift_alignment_score`
 - 失败桶分布 `failure_bucket_breakdown`
+- 任务家族分层汇总 `task_family_summary`
 
 其中：
 
@@ -162,11 +168,39 @@ pytest
 - `execution_readiness_score`
   衡量方案是否真正可交付，综合最终品类匹配、可行性对齐和约束命中。
 
+benchmark 导出报告现在带固定 schema：
+
+- `report_schema_version`
+- `metrics`
+- `per_task`
+- `report_sections.summary_metrics`
+- `report_sections.task_family_summary`
+- `report_sections.per_task_results`
+
+任务如果未显式声明 `task_family`，系统会按 `clarification_heavy`、`bundle`、`constraint_dense`、`drift`、`comparison`、`general` 自动归类。
+
 ### 用户记忆
 
 - 长期画像通过 SQLite 持久化。
 - 隐式/显式交互信号会写入持久化信号表，用于后续画像演化。
 - 上下文化加载时会参考近期交互，对相关品牌和品类做轻量偏置。
+- 当前还支持最小 persona state：`identity_goal`、`budget_sensitivity_profile`、`brand_orientation`、`aesthetic_preference`、`persona_stability`。
+- 画像还会记录最近一次 persona drift 和 transition log，用于表示用户在预算、风格、品牌取向上的变化轨迹。
+- 长期成长状态现在会额外维护 `owned_items`、`active_setups`、`upgrade_stage`、`purchase_rhythm`、`aspiration_signals`，用于描述用户已经拥有什么、正处在哪个升级阶段，以及下一步更适合补什么。
+
+### Persona-aware 规划
+
+- 商品数据支持 `persona_tags`；未显式标注时，catalog loader 会根据品牌、价格、颜色和品类推断最小 tags。
+- 检索重排会引入 `persona_alignment_score`，优先保留更贴近用户形象与风格表达的候选。
+- 规划器输出的 `CandidatePlan` 现在包含 `persona_alignment_score`、`persona_summary`，单个 `PlanItem` 也会带 `persona_reason`。
+- 解释器会在详细说明里展示“为什么这套方案更贴近当前用户画像”，而不只给价格和评分。
+- 对多品类任务，规划器会输出组合级字段：`bundle_type`、`bundle_objective`、`budget_allocation`、`style_coherence_score`、`scenario_fit_score`、`bundle_completeness_score`。
+- 当前还支持最小版 phased purchase：方案里会附带“一步到位 / 分阶段升级 / 保守路线”三类购买路径建议。
+
+### Drift-aware 澄清
+
+- 当 `persona_stability` 偏低时，澄清策略会额外考虑 `identity_goal`、`aesthetic_preference`、`budget_flexibility` 这类问题，而不只问硬约束缺口。
+- 用户主动修正预算、风格、身份表达或品牌取向时，系统会把这些变化写入 drift log，并在后续上下文化加载中轻量反映出来。
 
 ### RL 训练日志
 
@@ -175,6 +209,8 @@ RL 训练与评估现在也会输出项目自有的阶段性指标：
 - `avg_intent_resolution_score`
 - `avg_execution_readiness_score`
 - `avg_phase_completion_score`
+- `avg_drift_adaptation_score`
+- `drift_detection_rate`
 
 这些指标用于把策略训练目标和 benchmark 诊断结果对齐，而不是只看最终成功率。
 

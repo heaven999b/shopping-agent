@@ -62,6 +62,9 @@ class Explainer:
         if alternative_plans:
             parts.append(self._build_alternatives_hint(alternative_plans))
 
+        if plan.phased_purchase_options:
+            parts.append(self._build_phased_options(plan))
+
         return "\n\n".join(filter(None, parts))
 
     def _build_summary(self, plan: CandidatePlan, task: ShoppingTask) -> str:
@@ -69,22 +72,36 @@ class Explainer:
             f"{item.bundle_slot}（{item.product.title[:15]}...，¥{item.product.final_price:.0f}）"
             for item in plan.items
         )
-        return (
+        summary = (
             f"为您推荐以下方案（综合得分 {plan.overall_score:.0%}）：\n"
             f"{items_summary}\n"
             f"合计：¥{plan.net_price:.2f}"
             + (f"（预算 ¥{task.get_hard_constraints().get('budget_total', '不限')}）"
                if task.get_hard_constraints().get("budget_total") else "")
         )
+        if plan.persona_summary:
+            summary += (
+                f"\n这套方案在用户画像上的贴合度约为 {plan.persona_alignment_score:.0%}，"
+                f"{plan.persona_summary}。"
+            )
+        if plan.bundle_type == "bundle_plan" and plan.budget_allocation:
+            allocation = "、".join(
+                f"{slot} {ratio:.0%}" for slot, ratio in plan.budget_allocation.items()
+            )
+            summary += f"\n预算分配：{allocation}。"
+        return summary
 
     def _build_item_details(self, plan: CandidatePlan) -> str:
         lines = ["各品类选择理由："]
         for item in plan.items:
             p = item.product
+            reason = item.reason
+            if item.persona_reason:
+                reason = f"{reason}；画像上：{item.persona_reason}"
             lines.append(
                 f"  • [{item.bundle_slot}] {p.title}\n"
                 f"    价格：¥{p.final_price:.2f} | 评分：{p.rating} | "
-                f"平台：{p.platform} | 理由：{item.reason}"
+                f"平台：{p.platform} | 理由：{reason}"
             )
         return "\n".join(lines)
 
@@ -122,3 +139,20 @@ class Explainer:
         if len(alternatives) > 1:
             hints.append(f"升级方案（¥{alternatives[1].net_price:.2f}）")
         return f"💡 还有 {len(alternatives)} 套备选方案可供参考：{'、'.join(filter(None, hints))}。如需查看请告诉我。"
+
+    def _build_phased_options(self, plan: CandidatePlan) -> str:
+        lines = ["分阶段购买建议："]
+        for option in plan.phased_purchase_options[:2]:
+            if option.get("route") == "分阶段升级":
+                lines.append(
+                    f"  • 分阶段升级：先买 {', '.join(option.get('phase_1_slots', []))} "
+                    f"(约¥{option.get('phase_1_budget', 0):.0f})，"
+                    f"后续补 {', '.join(option.get('phase_2_slots', []))} "
+                    f"(约¥{option.get('phase_2_budget', 0):.0f})"
+                )
+            else:
+                lines.append(
+                    f"  • {option.get('route', '路线')}：{option.get('goal', '')}，"
+                    f"预算约¥{option.get('budget', 0):.0f}"
+                )
+        return "\n".join(lines)

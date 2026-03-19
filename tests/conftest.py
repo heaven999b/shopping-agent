@@ -206,6 +206,22 @@ def user_profile() -> UserProfile:
         user_id="u001",
         brand_weights={"Sony": 0.9, "LG": 0.7},
         price_sensitivity=0.6,
+        identity_goal={"professional": 0.8, "creator": 0.4},
+        budget_sensitivity_profile={"strict": 0.3, "premium": 0.7},
+        brand_orientation={"function_first": 0.4, "brand_signal": 0.8},
+        aesthetic_preference={"clean": 0.8, "premium": 0.7, "tech": 0.2},
+        persona_stability=0.9,
+        owned_items=[{"product_id": "owned_keyboard", "category": "keyboard", "brand": "Logitech"}],
+        active_setups={
+            "monitor_setup": {
+                "owned": ["owned_keyboard"],
+                "missing": ["monitor_arm"],
+                "style": "clean",
+                "next_best_upgrade": "monitor_arm",
+            }
+        },
+        upgrade_stage={"monitor_setup": "growing"},
+        purchase_rhythm={"avg_spend": 899.0, "purchase_count": 2, "cadence": "steady"},
         prefer_fast_delivery=True,
         prefer_official_store=True,
     )
