@@ -84,3 +84,23 @@ class TestPreferenceUpdaterPersistence:
 
         reloaded = PreferenceMemory(profile_store=store).load("user_rev")
         assert reloaded.price_sensitivity == pytest.approx(0.45)
+
+    def test_implicit_signals_are_persisted_and_reused(self):
+        db = SQLiteDB(db_path=":memory:")
+        store = ProfileStore(db=db)
+        memory = PreferenceMemory(profile_store=store)
+
+        memory.update_implicit(
+            "user_sig",
+            "dwell",
+            {"brand": "Sony", "category": "headset", "price": 999},
+            dwell_seconds=40,
+        )
+
+        signals = PreferenceMemory(profile_store=store).get_recent_signals("user_sig")
+        assert len(signals) >= 1
+        assert signals[0]["signal_type"] in {"dwell", "add_to_cart"}
+
+        task = make_task(categories=["headset"], budget=None)
+        contextualized = PreferenceMemory(profile_store=store).load("user_sig", task)
+        assert contextualized.brand_weights.get("Sony", 0.0) > 0.5

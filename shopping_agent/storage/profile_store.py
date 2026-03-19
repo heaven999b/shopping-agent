@@ -26,6 +26,22 @@ CREATE TABLE IF NOT EXISTS user_profiles (
 )
 """
 
+_CREATE_SIGNAL_TABLE = """
+CREATE TABLE IF NOT EXISTS interaction_signals (
+    signal_id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id          TEXT NOT NULL,
+    signal_type      TEXT NOT NULL,
+    product_attrs_json TEXT NOT NULL DEFAULT '{}',
+    dwell_seconds    REAL NOT NULL DEFAULT 0,
+    created_at       TEXT NOT NULL
+)
+"""
+
+_CREATE_SIGNAL_INDEX = """
+CREATE INDEX IF NOT EXISTS idx_interaction_signals_user_id_created_at
+ON interaction_signals(user_id, created_at DESC)
+"""
+
 
 def _profile_to_dict(p: UserProfile) -> dict:
     return {
@@ -36,6 +52,8 @@ def _profile_to_dict(p: UserProfile) -> dict:
         "size_profile": p.size_profile,
         "category_affinity": p.category_affinity,
         "style_tags": p.style_tags,
+        "interaction_signal_counts": p.interaction_signal_counts,
+        "budget_anchor_history": p.budget_anchor_history,
         "prefer_fast_delivery": p.prefer_fast_delivery,
         "prefer_official_store": p.prefer_official_store,
         "last_updated": p.last_updated.isoformat(),
@@ -51,6 +69,8 @@ def _dict_to_profile(d: dict) -> UserProfile:
         size_profile=d.get("size_profile", {}),
         category_affinity=d.get("category_affinity", {}),
         style_tags=d.get("style_tags", []),
+        interaction_signal_counts=d.get("interaction_signal_counts", {}),
+        budget_anchor_history=d.get("budget_anchor_history", []),
         prefer_fast_delivery=d.get("prefer_fast_delivery", False),
         prefer_official_store=d.get("prefer_official_store", True),
         last_updated=datetime.fromisoformat(d.get("last_updated", datetime.now().isoformat())),
@@ -70,6 +90,8 @@ class ProfileStore:
     def __init__(self, db: Optional[SQLiteDB] = None):
         self._db = db or get_db()
         self._db.execute(_CREATE_TABLE)
+        self._db.execute(_CREATE_SIGNAL_TABLE)
+        self._db.execute(_CREATE_SIGNAL_INDEX)
 
     def load(self, user_id: str) -> UserProfile:
         """加载用户画像，若不存在则返回空白画像（冷启动）。"""
@@ -104,3 +126,46 @@ class ProfileStore:
     def count(self) -> int:
         row = self._db.fetchone("SELECT COUNT(*) as n FROM user_profiles")
         return row["n"] if row else 0
+
+    def log_interaction_signal(
+        self,
+        user_id: str,
+        signal_type: str,
+        product_attrs: Optional[dict] = None,
+        dwell_seconds: float = 0.0,
+    ) -> None:
+        self._db.execute(
+            """INSERT INTO interaction_signals
+               (user_id, signal_type, product_attrs_json, dwell_seconds, created_at)
+               VALUES (?, ?, ?, ?, ?)""",
+            (
+                user_id,
+                signal_type,
+                json.dumps(product_attrs or {}, ensure_ascii=False),
+                dwell_seconds,
+                datetime.now().isoformat(),
+            ),
+        )
+
+    def list_interaction_signals(
+        self,
+        user_id: str,
+        limit: int = 20,
+    ) -> list[dict]:
+        rows = self._db.fetchall(
+            """SELECT signal_type, product_attrs_json, dwell_seconds, created_at
+               FROM interaction_signals
+               WHERE user_id=?
+               ORDER BY created_at DESC
+               LIMIT ?""",
+            (user_id, limit),
+        )
+        result = []
+        for row in rows:
+            result.append({
+                "signal_type": row["signal_type"],
+                "product_attrs": json.loads(row["product_attrs_json"] or "{}"),
+                "dwell_seconds": row["dwell_seconds"],
+                "created_at": row["created_at"],
+            })
+        return result

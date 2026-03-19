@@ -44,6 +44,7 @@ class TaskResult:
     # 过程指标
     clarification_turns: int = 0    # 澄清轮数
     latency_ms: float = 0.0         # 端到端耗时
+    workflow_steps_completed: int = 0
 
     # 方案多样性（多套方案时才有意义）
     plan_diversity: float = 0.0     # 各方案价格的变异系数（std/mean），0~1+
@@ -52,6 +53,20 @@ class TaskResult:
     # 图修复标记
     graph_recovery_used: bool = False  # 此任务是否触发了图修复
     verifier_skipped: bool = False     # 消融实验中跳过了 verifier
+
+    # 诊断指标
+    parser_category_match: float = 0.0
+    plan_category_match: float = 0.0
+    clarification_expected: bool = False
+    clarification_alignment: float = 0.0
+    feasibility_expected: bool = True
+    feasibility_alignment: float = 0.0
+    intent_resolution_score: float = 0.0
+    execution_readiness_score: float = 0.0
+    phase_coverage_score: float = 0.0
+    ended_in_error: bool = False
+    error_type: Optional[str] = None
+    failure_bucket: Optional[str] = None
 
     # 方案明细（用于 per-item 分析）
     plan_items: list[dict] = field(default_factory=list)
@@ -70,9 +85,22 @@ class TaskResult:
             "num_plans": self.num_plans,
             "clarification_turns": self.clarification_turns,
             "latency_ms": round(self.latency_ms, 1),
+            "workflow_steps_completed": self.workflow_steps_completed,
             "plan_diversity": round(self.plan_diversity, 4),
             "plan_score_variance": round(self.plan_score_variance, 4),
             "graph_recovery_used": self.graph_recovery_used,
+            "parser_category_match": round(self.parser_category_match, 3),
+            "plan_category_match": round(self.plan_category_match, 3),
+            "clarification_expected": self.clarification_expected,
+            "clarification_alignment": round(self.clarification_alignment, 3),
+            "feasibility_expected": self.feasibility_expected,
+            "feasibility_alignment": round(self.feasibility_alignment, 3),
+            "intent_resolution_score": round(self.intent_resolution_score, 3),
+            "execution_readiness_score": round(self.execution_readiness_score, 3),
+            "phase_coverage_score": round(self.phase_coverage_score, 3),
+            "ended_in_error": self.ended_in_error,
+            "error_type": self.error_type,
+            "failure_bucket": self.failure_bucket,
         }
 
 
@@ -102,6 +130,14 @@ class MetricsComputer:
         avg_score = sum(r.overall_score for r in results) / n
         avg_turns = sum(r.clarification_turns for r in results) / n
         avg_latency = sum(r.latency_ms for r in results) / n
+        avg_workflow_steps = sum(r.workflow_steps_completed for r in results) / n
+        avg_parser_category_match = sum(r.parser_category_match for r in results) / n
+        avg_plan_category_match = sum(r.plan_category_match for r in results) / n
+        clarification_alignment_rate = sum(r.clarification_alignment for r in results) / n
+        feasibility_alignment_rate = sum(r.feasibility_alignment for r in results) / n
+        avg_intent_resolution = sum(r.intent_resolution_score for r in results) / n
+        avg_execution_readiness = sum(r.execution_readiness_score for r in results) / n
+        avg_phase_coverage = sum(r.phase_coverage_score for r in results) / n
 
         # 预算利用率（仅计算有结果的任务）
         results_with_result = [r for r in results if r.has_result]
@@ -121,6 +157,16 @@ class MetricsComputer:
         # 错误分析
         errors = [r.error for r in results if r.error]
         error_rate = len(errors) / n
+        ended_in_error_rate = sum(1 for r in results if r.ended_in_error) / n
+        error_type_breakdown: dict[str, int] = {}
+        failure_bucket_breakdown: dict[str, int] = {}
+        for r in results:
+            if r.error_type:
+                error_type_breakdown[r.error_type] = error_type_breakdown.get(r.error_type, 0) + 1
+            if r.failure_bucket:
+                failure_bucket_breakdown[r.failure_bucket] = (
+                    failure_bucket_breakdown.get(r.failure_bucket, 0) + 1
+                )
 
         return {
             # 基础统计
@@ -133,16 +179,27 @@ class MetricsComputer:
             "budget_satisfaction_rate": round(n_budget_ok / n, 4),
             "avg_constraint_hit_rate": round(avg_constraint_hit, 4),
             "avg_overall_score": round(avg_score, 4),
+            "avg_parser_category_match": round(avg_parser_category_match, 4),
+            "avg_plan_category_match": round(avg_plan_category_match, 4),
+            "clarification_alignment_rate": round(clarification_alignment_rate, 4),
+            "feasibility_alignment_rate": round(feasibility_alignment_rate, 4),
+            "avg_intent_resolution_score": round(avg_intent_resolution, 4),
+            "avg_execution_readiness_score": round(avg_execution_readiness, 4),
+            "avg_phase_coverage_score": round(avg_phase_coverage, 4),
             # 方案质量
             "avg_plan_diversity": round(avg_plan_diversity, 4),
             # 过程指标
             "avg_clarification_turns": round(avg_turns, 3),
             "avg_latency_ms": round(avg_latency, 1),
             "avg_budget_ratio": round(avg_budget_ratio, 3),
+            "avg_workflow_steps_completed": round(avg_workflow_steps, 2),
             # 图修复
             "graph_recovery_rate": round(graph_recovery_rate, 4),
             # 错误
             "error_rate": round(error_rate, 4),
+            "ended_in_error_rate": round(ended_in_error_rate, 4),
+            "error_type_breakdown": error_type_breakdown,
+            "failure_bucket_breakdown": failure_bucket_breakdown,
             "errors": errors[:5],  # 最多显示 5 个错误
         }
 
@@ -161,6 +218,9 @@ class MetricsComputer:
             "avg_constraint_hit_rate", "avg_overall_score",
             "avg_plan_diversity", "avg_clarification_turns",
             "avg_budget_ratio", "graph_recovery_rate",
+            "avg_parser_category_match", "avg_plan_category_match",
+            "clarification_alignment_rate", "feasibility_alignment_rate",
+            "avg_intent_resolution_score", "avg_execution_readiness_score",
         ]
         comparison = {}
         for key in metric_keys:

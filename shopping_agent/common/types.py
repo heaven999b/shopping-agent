@@ -170,6 +170,10 @@ class UserProfile:
     # 风格标签，e.g. ["简约", "商务", "性价比"]
     style_tags: list[str] = field(default_factory=list)
 
+    # 交互记忆摘要
+    interaction_signal_counts: dict[str, int] = field(default_factory=dict)
+    budget_anchor_history: list[float] = field(default_factory=list)
+
     # 履约偏好
     prefer_fast_delivery: bool = False
     prefer_official_store: bool = True

@@ -37,6 +37,16 @@ from shopping_agent.evaluation.metrics import MetricsComputer, TaskResult
 import uuid
 
 
+def _safe_ratio_overlap(left: list[str], right: list[str]) -> float:
+    left_set = {item for item in left if item}
+    right_set = {item for item in right if item}
+    if not left_set and not right_set:
+        return 1.0
+    if not left_set or not right_set:
+        return 0.0
+    return len(left_set & right_set) / len(right_set)
+
+
 def _task_from_dict(d: dict) -> ShoppingTask:
     """将 tasks.json 中的 dict 转为 ShoppingTask 对象。"""
     constraints = []
@@ -81,6 +91,33 @@ def _check_required_attrs(plan_items: list[dict], required_attrs: list[str]) -> 
             if attrs.get(attr) is True or attrs.get(attr) == "true":
                 hits += 1
     return hits / (len(required_attrs) * max(len(plan_items), 1))
+
+
+def _categorize_failure(result: TaskResult) -> str:
+    if result.success:
+        return "success"
+    if result.ended_in_error and result.error_type:
+        error_type = result.error_type.lower()
+        if "intent" in error_type:
+            return "parse_failure"
+        if "verification" in error_type:
+            return "verification_failure"
+        if "retrieval" in error_type or "noproductfound" in error_type:
+            return "retrieval_failure"
+        if "planning" in error_type:
+            return "planning_failure"
+        return "runtime_failure"
+    if result.clarification_expected and result.clarification_alignment < 1.0:
+        return "clarification_failure"
+    if result.has_result and not result.budget_satisfied:
+        return "budget_violation"
+    if result.has_result and result.constraint_hit_rate < 1.0:
+        return "constraint_miss"
+    if result.has_result and result.plan_category_match < 1.0:
+        return "category_mismatch"
+    if not result.has_result:
+        return "coverage_failure"
+    return "unknown_failure"
 
 
 class BenchmarkRunner:
@@ -263,6 +300,8 @@ class BenchmarkRunner:
 
         except Exception as e:
             result.error = f"{type(e).__name__}: {str(e)}"
+            result.error_type = type(e).__name__
+            result.failure_bucket = "runtime_failure"
             result.success = False
             if verbose:
                 print(f"  [ERROR] {task_id}: {result.error}")
@@ -312,6 +351,7 @@ class BenchmarkRunner:
             result = self._populate_result_from_state(
                 result=result,
                 state=state,
+                raw=raw,
                 expected=expected,
                 budget=budget,
             )
@@ -345,9 +385,19 @@ class BenchmarkRunner:
         self,
         result: TaskResult,
         state,
+        raw: dict,
         expected: dict,
         budget: Optional[float],
     ) -> TaskResult:
+        result.workflow_steps_completed = len({attr.step for attr in state.attribution_trace})
+        result.clarification_expected = raw.get("clarification_needed", False)
+        result.clarification_alignment = 1.0 if result.clarification_expected == (result.clarification_turns > 0) else 0.0
+        result.feasibility_expected = expected.get("feasible", True)
+        result.parser_category_match = _safe_ratio_overlap(
+            state.task.categories if state.task else [],
+            expected.get("gold_categories", raw.get("categories", [])),
+        )
+
         result.has_result = state.selected_plan is not None
         result.num_plans = len(state.candidate_plans)
 
@@ -370,6 +420,10 @@ class BenchmarkRunner:
             required_attrs = expected.get("required_attrs", [])
             result.constraint_hit_rate = _check_required_attrs(
                 plan_items_with_attrs, required_attrs
+            )
+            result.plan_category_match = _safe_ratio_overlap(
+                [item.product.category for item in state.selected_plan.items],
+                expected.get("gold_categories", raw.get("categories", [])),
             )
 
             all_plans = state.candidate_plans
@@ -397,6 +451,25 @@ class BenchmarkRunner:
             if state.current_step == WorkflowStep.ERROR and state.errors:
                 last_error = state.errors[-1]
                 result.error = f"{last_error['error_type']}: {last_error['message']}"
+                result.error_type = last_error["error_type"]
+            result.plan_category_match = 0.0
+
+        result.feasibility_alignment = 1.0 if result.feasibility_expected == result.has_result else 0.0
+        result.ended_in_error = state.current_step == WorkflowStep.ERROR
+        if result.error and result.error_type is None:
+            result.error_type = result.error.split(":", 1)[0]
+
+        result.phase_coverage_score = min(1.0, result.workflow_steps_completed / 6.0)
+        result.intent_resolution_score = (
+            0.55 * result.parser_category_match +
+            0.45 * result.clarification_alignment
+        )
+        result.execution_readiness_score = (
+            0.4 * result.plan_category_match +
+            0.3 * result.feasibility_alignment +
+            0.3 * result.constraint_hit_rate
+        )
+        result.failure_bucket = _categorize_failure(result)
 
         return result
 
@@ -490,8 +563,11 @@ class BenchmarkRunner:
         print(f"  Budget Satisfied:     {metrics['budget_satisfaction_rate']:.1%}")
         print(f"  Constraint Hit Rate:  {metrics['avg_constraint_hit_rate']:.1%}")
         print(f"  Avg Score:            {metrics['avg_overall_score']:.4f}")
+        print(f"  Intent Resolution:    {metrics['avg_intent_resolution_score']:.4f}")
+        print(f"  Execution Readiness:  {metrics['avg_execution_readiness_score']:.4f}")
         print(f"  Plan Diversity (CV):  {metrics['avg_plan_diversity']:.4f}")
         print(f"  Avg Budget Ratio:     {metrics['avg_budget_ratio']:.2f}")
+        print(f"  Phase Coverage:       {metrics['avg_phase_coverage_score']:.1%}")
         print(f"  Avg Latency:          {metrics['avg_latency_ms']:.0f} ms")
         print(f"  Graph Recovery Rate:  {metrics['graph_recovery_rate']:.1%}")
         if metrics.get("errors"):

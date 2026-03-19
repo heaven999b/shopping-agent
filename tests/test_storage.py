@@ -146,3 +146,16 @@ class TestProfileStore:
         assert profile_store.count() == 0
         profile_store.save(UserProfile(user_id="u_cnt"))
         assert profile_store.count() == 1
+
+    def test_log_and_list_interaction_signals(self, profile_store):
+        profile_store.log_interaction_signal(
+            user_id="u_sig",
+            signal_type="dwell",
+            product_attrs={"brand": "Sony", "category": "headset"},
+            dwell_seconds=45,
+        )
+        signals = profile_store.list_interaction_signals("u_sig")
+        assert len(signals) == 1
+        assert signals[0]["signal_type"] == "dwell"
+        assert signals[0]["product_attrs"]["brand"] == "Sony"
+        assert signals[0]["dwell_seconds"] == pytest.approx(45)

@@ -145,6 +145,39 @@ pytest
 - `e2e`
   通过 `ShoppingAgentOrchestrator.run()/continue_session()` 驱动任务，包含意图解析和自动澄清回合，更接近真实 agent 行为。
 
+当前 benchmark 除了成功率、覆盖率、预算满足率外，还会输出更细的诊断指标：
+
+- 解析品类匹配率 `avg_parser_category_match`
+- 最终方案品类匹配率 `avg_plan_category_match`
+- 澄清预期对齐率 `clarification_alignment_rate`
+- 可行性判断对齐率 `feasibility_alignment_rate`
+- 意图收敛分 `avg_intent_resolution_score`
+- 执行就绪分 `avg_execution_readiness_score`
+- 失败桶分布 `failure_bucket_breakdown`
+
+其中：
+
+- `intent_resolution_score`
+  衡量任务理解是否收敛，综合解析品类匹配和澄清对齐。
+- `execution_readiness_score`
+  衡量方案是否真正可交付，综合最终品类匹配、可行性对齐和约束命中。
+
+### 用户记忆
+
+- 长期画像通过 SQLite 持久化。
+- 隐式/显式交互信号会写入持久化信号表，用于后续画像演化。
+- 上下文化加载时会参考近期交互，对相关品牌和品类做轻量偏置。
+
+### RL 训练日志
+
+RL 训练与评估现在也会输出项目自有的阶段性指标：
+
+- `avg_intent_resolution_score`
+- `avg_execution_readiness_score`
+- `avg_phase_completion_score`
+
+这些指标用于把策略训练目标和 benchmark 诊断结果对齐，而不是只看最终成功率。
+
 ### 示例交互
 
 ```

@@ -285,8 +285,18 @@ class RLTrainer:
             satisfaction = self.simulator.evaluate_plan(plan_summary, user_pref)
             ep.final_task_success = satisfaction >= 0.7
             ep.final_plan_score = satisfaction
+            ep.execution_readiness_score = self._compute_execution_readiness(
+                task, plan_summary, satisfaction
+            )
+            if not ep.final_task_success:
+                ep.failure_bucket = "plan_quality"
+        else:
+            ep.execution_readiness_score = 0.0
+            ep.failure_bucket = "dropout"
 
         ep.total_turns = len(ep.clarification_transitions)
+        ep.intent_resolution_score = self._compute_intent_resolution(task, ep.total_turns)
+        ep.phase_completion_score = self._compute_phase_completion(ep, user_dropped_out)
         return ep
 
     # ---------------------------------------------------------------------------
@@ -340,6 +350,9 @@ class RLTrainer:
         success_rate = np.mean([float(ep.final_task_success) for ep in episodes])
         avg_turns = np.mean([ep.total_turns for ep in episodes])
         avg_score = np.mean([ep.final_plan_score for ep in episodes])
+        avg_intent_resolution = np.mean([ep.intent_resolution_score for ep in episodes])
+        avg_execution_readiness = np.mean([ep.execution_readiness_score for ep in episodes])
+        avg_phase_completion = np.mean([ep.phase_completion_score for ep in episodes])
 
         return {
             # Actor losses（使用 GAE advantage 而非原始 G_t）
@@ -354,6 +367,9 @@ class RLTrainer:
             "success_rate": float(success_rate),
             "avg_turns": float(avg_turns),
             "avg_plan_score": float(avg_score),
+            "avg_intent_resolution_score": float(avg_intent_resolution),
+            "avg_execution_readiness_score": float(avg_execution_readiness),
+            "avg_phase_completion_score": float(avg_phase_completion),
             "num_episodes": len(episodes),
         }
 
@@ -380,6 +396,9 @@ class RLTrainer:
             "success_rate": float(np.mean([ep.final_task_success for ep in episodes])),
             "avg_turns": float(np.mean([ep.total_turns for ep in episodes])),
             "avg_plan_score": float(np.mean([ep.final_plan_score for ep in episodes])),
+            "avg_intent_resolution_score": float(np.mean([ep.intent_resolution_score for ep in episodes])),
+            "avg_execution_readiness_score": float(np.mean([ep.execution_readiness_score for ep in episodes])),
+            "avg_phase_completion_score": float(np.mean([ep.phase_completion_score for ep in episodes])),
             "num_episodes": num_episodes,
         }
 
@@ -515,6 +534,46 @@ class RLTrainer:
             return 0.0
         total = len([v for v in task.uncertainty_slots.values() if v is None])
         return 1.0 / max(total + 1, 1)
+
+    @staticmethod
+    def _compute_intent_resolution(task: ShoppingTask, total_turns: int) -> float:
+        if task.uncertainty_slots:
+            known = sum(1 for v in task.uncertainty_slots.values() if v is not None)
+            slot_resolution = known / len(task.uncertainty_slots)
+        else:
+            slot_resolution = 1.0
+        turn_efficiency = max(0.0, 1.0 - total_turns / 6.0)
+        return float(0.75 * slot_resolution + 0.25 * turn_efficiency)
+
+    @staticmethod
+    def _compute_execution_readiness(
+        task: ShoppingTask,
+        plan_summary: dict,
+        satisfaction: float,
+    ) -> float:
+        budget_total = task.get_hard_constraints().get("budget_total")
+        total_price = plan_summary.get("total_price", 0.0)
+        budget_fit = 1.0
+        if budget_total:
+            budget_fit = (
+                1.0 if total_price <= budget_total
+                else max(0.0, 1.0 - (total_price - budget_total) / budget_total)
+            )
+        return float(0.6 * satisfaction + 0.4 * budget_fit)
+
+    @staticmethod
+    def _compute_phase_completion(ep: Episode, user_dropped_out: bool) -> float:
+        completed = 1.0
+        if ep.clarification_transitions:
+            completed += 1.0
+        if ep.planning_transitions:
+            completed += 2.0
+        if ep.final_task_success:
+            completed += 1.0
+        max_phases = 5.0
+        if user_dropped_out:
+            completed = min(completed, 2.0)
+        return float(completed / max_phases)
 
     def _simulate_planning(
         self, task: ShoppingTask, user_pref: HiddenUserPreference, ep: Episode

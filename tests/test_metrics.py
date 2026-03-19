@@ -28,6 +28,14 @@ def make_result(
     clarification_turns: int = 0,
     latency_ms: float = 100.0,
     budget_ratio: float = 0.8,
+    parser_category_match: float = 1.0,
+    plan_category_match: float = 1.0,
+    clarification_alignment: float = 1.0,
+    feasibility_alignment: float = 1.0,
+    intent_resolution_score: float = 1.0,
+    execution_readiness_score: float = 1.0,
+    phase_coverage_score: float = 1.0,
+    failure_bucket: str | None = None,
 ) -> TaskResult:
     return TaskResult(
         task_id=task_id,
@@ -42,6 +50,14 @@ def make_result(
         clarification_turns=clarification_turns,
         latency_ms=latency_ms,
         budget_ratio=budget_ratio,
+        parser_category_match=parser_category_match,
+        plan_category_match=plan_category_match,
+        clarification_alignment=clarification_alignment,
+        feasibility_alignment=feasibility_alignment,
+        intent_resolution_score=intent_resolution_score,
+        execution_readiness_score=execution_readiness_score,
+        phase_coverage_score=phase_coverage_score,
+        failure_bucket=failure_bucket,
     )
 
 
@@ -104,3 +120,36 @@ class TestMetricsComputer:
         comparison = self.computer.compare(baseline, experiment)
         assert "success_rate" in comparison
         assert comparison["avg_overall_score"]["delta"] == pytest.approx(0.2, abs=1e-3)
+
+    def test_diagnostic_metrics(self):
+        results = [
+            make_result(
+                "t1",
+                parser_category_match=1.0,
+                plan_category_match=0.5,
+                clarification_alignment=1.0,
+                feasibility_alignment=1.0,
+                intent_resolution_score=0.9,
+                execution_readiness_score=0.7,
+                phase_coverage_score=0.8,
+                failure_bucket="success",
+            ),
+            make_result(
+                "t2",
+                parser_category_match=0.5,
+                plan_category_match=1.0,
+                clarification_alignment=0.0,
+                feasibility_alignment=1.0,
+                intent_resolution_score=0.4,
+                execution_readiness_score=0.8,
+                phase_coverage_score=0.6,
+                failure_bucket="clarification_failure",
+            ),
+        ]
+        metrics = self.computer.compute(results)
+        assert metrics["avg_parser_category_match"] == pytest.approx(0.75, abs=1e-4)
+        assert metrics["avg_plan_category_match"] == pytest.approx(0.75, abs=1e-4)
+        assert metrics["clarification_alignment_rate"] == pytest.approx(0.5, abs=1e-4)
+        assert metrics["avg_intent_resolution_score"] == pytest.approx(0.65, abs=1e-4)
+        assert metrics["avg_execution_readiness_score"] == pytest.approx(0.75, abs=1e-4)
+        assert metrics["failure_bucket_breakdown"]["clarification_failure"] == 1

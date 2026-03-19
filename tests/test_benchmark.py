@@ -72,3 +72,7 @@ class TestBenchmarkRunnerModes:
         assert report["num_tasks"] == 1
         assert report["per_task"][0]["has_result"] is True
         assert report["per_task"][0]["clarification_turns"] >= 1
+        assert "avg_parser_category_match" in report["metrics"]
+        assert "clarification_alignment_rate" in report["metrics"]
+        assert "avg_intent_resolution_score" in report["metrics"]
+        assert report["per_task"][0]["failure_bucket"] == "success"

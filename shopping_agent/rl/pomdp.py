@@ -261,6 +261,10 @@ class Episode:
 
     final_task_success: bool = False
     final_plan_score: float = 0.0
+    intent_resolution_score: float = 0.0
+    execution_readiness_score: float = 0.0
+    phase_completion_score: float = 0.0
+    failure_bucket: str = "success"
     total_turns: int = 0
 
     def add_clarification_step(self, t: ClarificationTransition) -> None:
@@ -288,9 +292,9 @@ class Episode:
 
         # 在最后一步追加任务成功奖励
         if clar_rewards:
-            clar_rewards[-1] += float(self.final_task_success)
+            clar_rewards[-1] += float(self.final_task_success) + 0.5 * self.intent_resolution_score
         if plan_rewards:
-            plan_rewards[-1] += self.final_plan_score
+            plan_rewards[-1] += self.final_plan_score + 0.5 * self.execution_readiness_score
 
         return (
             _discounted_returns(clar_rewards),
@@ -323,9 +327,9 @@ class Episode:
         plan_rewards = [t.reward for t in self.planning_transitions]
 
         if clar_rewards:
-            clar_rewards[-1] += float(self.final_task_success)
+            clar_rewards[-1] += float(self.final_task_success) + 0.5 * self.intent_resolution_score
         if plan_rewards:
-            plan_rewards[-1] += self.final_plan_score
+            plan_rewards[-1] += self.final_plan_score + 0.5 * self.execution_readiness_score
 
         def _gae(transitions, rewards, critic):
             if not transitions:
