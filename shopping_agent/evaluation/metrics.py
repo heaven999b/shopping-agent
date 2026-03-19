@@ -26,34 +26,35 @@ class TaskResult:
     """
     单次任务执行结果，由 BenchmarkRunner 填写。
     """
+
     task_id: str
     query: str
 
     # 执行状态
-    success: bool = False           # 有推荐结果且满足预算
-    bundle_success: bool = False    # bundle 任务上的严格成功
-    has_result: bool = False        # 是否有任何推荐结果（覆盖率）
-    error: Optional[str] = None     # 若抛异常记录错误信息
+    success: bool = False  # 有推荐结果且满足预算
+    bundle_success: bool = False  # bundle 任务上的严格成功
+    has_result: bool = False  # 是否有任何推荐结果（覆盖率）
+    error: Optional[str] = None  # 若抛异常记录错误信息
 
     # 方案指标
     budget_satisfied: bool = False  # 总价 ≤ 预算
-    budget_ratio: float = 0.0       # total_price / budget（越接近 1 越好）
+    budget_ratio: float = 0.0  # total_price / budget（越接近 1 越好）
     constraint_hit_rate: float = 0.0  # 必要属性命中率
-    overall_score: float = 0.0      # 最优方案综合得分
-    num_plans: int = 0              # 生成方案数
+    overall_score: float = 0.0  # 最优方案综合得分
+    num_plans: int = 0  # 生成方案数
 
     # 过程指标
-    clarification_turns: int = 0    # 澄清轮数
-    latency_ms: float = 0.0         # 端到端耗时
+    clarification_turns: int = 0  # 澄清轮数
+    latency_ms: float = 0.0  # 端到端耗时
     workflow_steps_completed: int = 0
 
     # 方案多样性（多套方案时才有意义）
-    plan_diversity: float = 0.0     # 各方案价格的变异系数（std/mean），0~1+
+    plan_diversity: float = 0.0  # 各方案价格的变异系数（std/mean），0~1+
     plan_score_variance: float = 0.0  # 各方案综合得分方差
 
     # 图修复标记
     graph_recovery_used: bool = False  # 此任务是否触发了图修复
-    verifier_skipped: bool = False     # 消融实验中跳过了 verifier
+    verifier_skipped: bool = False  # 消融实验中跳过了 verifier
 
     # 诊断指标
     task_family: str = "general"
@@ -154,22 +155,26 @@ class MetricsComputer:
         n_has_result = sum(1 for r in results if r.has_result)
         n_budget_ok = sum(1 for r in results if r.budget_satisfied)
 
-        avg_constraint_hit = (
-            sum(r.constraint_hit_rate for r in results) / n
-        )
+        avg_constraint_hit = sum(r.constraint_hit_rate for r in results) / n
         avg_score = sum(r.overall_score for r in results) / n
         avg_turns = sum(r.clarification_turns for r in results) / n
         avg_latency = sum(r.latency_ms for r in results) / n
         avg_workflow_steps = sum(r.workflow_steps_completed for r in results) / n
         avg_parser_category_match = sum(r.parser_category_match for r in results) / n
         avg_plan_category_match = sum(r.plan_category_match for r in results) / n
-        clarification_alignment_rate = sum(r.clarification_alignment for r in results) / n
+        clarification_alignment_rate = (
+            sum(r.clarification_alignment for r in results) / n
+        )
         feasibility_alignment_rate = sum(r.feasibility_alignment for r in results) / n
         avg_intent_resolution = sum(r.intent_resolution_score for r in results) / n
         avg_execution_readiness = sum(r.execution_readiness_score for r in results) / n
         avg_phase_coverage = sum(r.phase_coverage_score for r in results) / n
-        avg_plan_persona_alignment = sum(r.plan_persona_alignment_score for r in results) / n
-        avg_persona_reason_coverage = sum(r.persona_reason_coverage for r in results) / n
+        avg_plan_persona_alignment = (
+            sum(r.plan_persona_alignment_score for r in results) / n
+        )
+        avg_persona_reason_coverage = (
+            sum(r.persona_reason_coverage for r in results) / n
+        )
         avg_style_coherence = sum(r.style_coherence_score for r in results) / n
         avg_bundle_completeness = sum(r.bundle_completeness_score for r in results) / n
         avg_compatibility = sum(r.compatibility_score for r in results) / n
@@ -184,12 +189,15 @@ class MetricsComputer:
         results_with_result = [r for r in results if r.has_result]
         avg_budget_ratio = (
             sum(r.budget_ratio for r in results_with_result) / len(results_with_result)
-            if results_with_result else 0.0
+            if results_with_result
+            else 0.0
         )
 
         # 方案多样性（取各任务的平均 plan_diversity）
         diversity_vals = [r.plan_diversity for r in results if r.plan_diversity > 0]
-        avg_plan_diversity = sum(diversity_vals) / len(diversity_vals) if diversity_vals else 0.0
+        avg_plan_diversity = (
+            sum(diversity_vals) / len(diversity_vals) if diversity_vals else 0.0
+        )
 
         # 图修复使用率
         n_graph_recovery = sum(1 for r in results if r.graph_recovery_used)
@@ -204,13 +212,16 @@ class MetricsComputer:
         task_family_summary: dict[str, dict[str, Any]] = {}
         for r in results:
             if r.error_type:
-                error_type_breakdown[r.error_type] = error_type_breakdown.get(r.error_type, 0) + 1
+                error_type_breakdown[r.error_type] = (
+                    error_type_breakdown.get(r.error_type, 0) + 1
+                )
             if r.failure_bucket:
                 failure_bucket_breakdown[r.failure_bucket] = (
                     failure_bucket_breakdown.get(r.failure_bucket, 0) + 1
                 )
+            family_key = r.original_task_family or r.task_family
             family_bucket = task_family_summary.setdefault(
-                r.task_family,
+                family_key,
                 {
                     "num_tasks": 0,
                     "successes": 0,
@@ -229,7 +240,9 @@ class MetricsComputer:
             family_bucket["coverage_hits"] += int(r.has_result)
             family_bucket["avg_overall_score_total"] += r.overall_score
             family_bucket["avg_drift_alignment_total"] += r.drift_alignment_score
-            family_bucket["avg_bundle_completeness_total"] += r.bundle_completeness_score
+            family_bucket[
+                "avg_bundle_completeness_total"
+            ] += r.bundle_completeness_score
             family_bucket["avg_compatibility_total"] += r.compatibility_score
             family_bucket["avg_relation_coverage_total"] += r.relation_coverage_score
             family_bucket["avg_bundle_decision_total"] += r.bundle_decision_score
@@ -239,7 +252,9 @@ class MetricsComputer:
             count = max(1, bucket["num_tasks"])
             bucket["success_rate"] = round(bucket["successes"] / count, 4)
             bucket["coverage"] = round(bucket["coverage_hits"] / count, 4)
-            bucket["avg_overall_score"] = round(bucket["avg_overall_score_total"] / count, 4)
+            bucket["avg_overall_score"] = round(
+                bucket["avg_overall_score_total"] / count, 4
+            )
             bucket["avg_drift_alignment_score"] = round(
                 bucket["avg_drift_alignment_total"] / count, 4
             )
@@ -318,8 +333,10 @@ class MetricsComputer:
 
     def _compute_bundle_summary(self, results: list[TaskResult]) -> dict[str, Any]:
         bundle_results = [
-            r for r in results
-            if r.original_task_family in {"bundle", "upgrade_path", "phased_purchase", "bundle_noise"}
+            r
+            for r in results
+            if r.original_task_family
+            in {"bundle", "upgrade_path", "phased_purchase", "bundle_noise"}
         ]
         if not bundle_results:
             return {"num_tasks": 0}
@@ -361,18 +378,32 @@ class MetricsComputer:
         对比两组指标，计算相对提升（用于 RL vs 启发式 消融实验）。
         """
         metric_keys = [
-            "success_rate", "coverage", "budget_satisfaction_rate",
-            "avg_constraint_hit_rate", "avg_overall_score",
-            "avg_plan_diversity", "avg_clarification_turns",
-            "avg_budget_ratio", "graph_recovery_rate",
-            "avg_parser_category_match", "avg_plan_category_match",
-            "clarification_alignment_rate", "feasibility_alignment_rate",
-            "avg_intent_resolution_score", "avg_execution_readiness_score",
-            "avg_plan_persona_alignment_score", "avg_persona_reason_coverage",
-            "avg_style_coherence_score", "avg_bundle_completeness_score",
-            "avg_compatibility_score", "avg_relation_coverage_score", "avg_bundle_decision_score",
-            "avg_long_term_fit_score", "avg_phased_purchase_score",
-            "drift_detection_rate", "avg_drift_alignment_score",
+            "success_rate",
+            "coverage",
+            "budget_satisfaction_rate",
+            "avg_constraint_hit_rate",
+            "avg_overall_score",
+            "avg_plan_diversity",
+            "avg_clarification_turns",
+            "avg_budget_ratio",
+            "graph_recovery_rate",
+            "avg_parser_category_match",
+            "avg_plan_category_match",
+            "clarification_alignment_rate",
+            "feasibility_alignment_rate",
+            "avg_intent_resolution_score",
+            "avg_execution_readiness_score",
+            "avg_plan_persona_alignment_score",
+            "avg_persona_reason_coverage",
+            "avg_style_coherence_score",
+            "avg_bundle_completeness_score",
+            "avg_compatibility_score",
+            "avg_relation_coverage_score",
+            "avg_bundle_decision_score",
+            "avg_long_term_fit_score",
+            "avg_phased_purchase_score",
+            "drift_detection_rate",
+            "avg_drift_alignment_score",
         ]
         comparison = {}
         for key in metric_keys:

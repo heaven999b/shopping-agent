@@ -48,6 +48,7 @@ from shopping_agent.common.types import FeedbackSignal
 # 子命令：chat
 # ---------------------------------------------------------------------------
 
+
 def cmd_chat(args) -> None:
     if not os.environ.get("ANTHROPIC_API_KEY"):
         print("错误：对话模式需要设置环境变量 ANTHROPIC_API_KEY")
@@ -96,8 +97,10 @@ def cmd_chat(args) -> None:
 
             if result.get("plan"):
                 plan = result["plan"]
-                print(f"  [方案 {plan['plan_id'][:8]}] 总价: ¥{plan['net_price']:.2f} "
-                      f"得分: {plan['overall_score']:.0%}")
+                print(
+                    f"  [方案 {plan['plan_id'][:8]}] 总价: ¥{plan['net_price']:.2f} "
+                    f"得分: {plan['overall_score']:.0%}"
+                )
                 for item in plan["items"]:
                     print(f"  - {item['slot']}: {item['product']} ¥{item['price']:.2f}")
                 print()
@@ -116,6 +119,7 @@ def cmd_chat(args) -> None:
 # 子命令：benchmark
 # ---------------------------------------------------------------------------
 
+
 def cmd_benchmark(args) -> None:
     from shopping_agent.evaluation.benchmark import BenchmarkRunner
     from shopping_agent.data.loader import load_benchmark_tasks
@@ -126,6 +130,7 @@ def cmd_benchmark(args) -> None:
 
     if args.baseline_suite:
         import subprocess
+
         cmd = [
             sys.executable,
             "run_benchmark.py",
@@ -154,7 +159,9 @@ def cmd_benchmark(args) -> None:
         print("=" * 60)
         for metric, vals in comparison.items():
             delta_str = f"{vals['delta']:+.4f} ({vals['relative_pct']:+.1f}%)"
-            print(f"  {metric:<35} {vals['heuristic']:.4f} → {vals['rl']:.4f}  {delta_str}")
+            print(
+                f"  {metric:<35} {vals['heuristic']:.4f} → {vals['rl']:.4f}  {delta_str}"
+            )
 
         if args.save:
             runner_base.save_report(report_base)
@@ -177,8 +184,11 @@ def cmd_benchmark(args) -> None:
 # 子命令：train
 # ---------------------------------------------------------------------------
 
+
 def cmd_train(args) -> None:
-    print(f"Starting RL-enhanced policy training: {args.iters} iterations × {args.episodes} episodes")
+    print(
+        f"Starting RL-enhanced policy training: {args.iters} iterations × {args.episodes} episodes"
+    )
     orchestrator = ShoppingAgentOrchestrator()
     logs = orchestrator.train_rl(
         num_iterations=args.iters,
@@ -189,8 +199,10 @@ def cmd_train(args) -> None:
     print(f"\nTraining complete. {len(logs)} iteration logs recorded.")
     if logs:
         last = logs[-1]
-        print(f"Final eval: success_rate={last.get('eval_success_rate', 'N/A')}, "
-              f"avg_turns={last.get('eval_avg_turns', 'N/A')}")
+        print(
+            f"Final eval: success_rate={last.get('eval_success_rate', 'N/A')}, "
+            f"avg_turns={last.get('eval_avg_turns', 'N/A')}"
+        )
 
     path = "logs/rl_training_log.json"
     with open(path, "w", encoding="utf-8") as f:
@@ -201,6 +213,7 @@ def cmd_train(args) -> None:
 # ---------------------------------------------------------------------------
 # 子命令：catalog
 # ---------------------------------------------------------------------------
+
 
 def cmd_catalog(args) -> None:
     from shopping_agent.data.loader import ProductCatalog
@@ -213,7 +226,9 @@ def cmd_catalog(args) -> None:
         results = catalog.search(keyword=args.search, top_k=5)
         print(f"\n搜索 '{args.search}' 的结果（Top 5）：")
         for p in results:
-            print(f"  [{p.product_id}] {p.brand} {p.title[:30]} ¥{p.final_price:.0f} ★{p.rating}")
+            print(
+                f"  [{p.product_id}] {p.brand} {p.title[:30]} ¥{p.final_price:.0f} ★{p.rating}"
+            )
 
 
 def cmd_demo(args) -> None:
@@ -230,6 +245,7 @@ def cmd_demo(args) -> None:
 # ---------------------------------------------------------------------------
 # 子命令：plan
 # ---------------------------------------------------------------------------
+
 
 def cmd_plan(args) -> None:
     orchestrator = ShoppingAgentOrchestrator()
@@ -283,6 +299,7 @@ def cmd_plan(args) -> None:
 # 辅助函数
 # ---------------------------------------------------------------------------
 
+
 def _handle_feedback(orchestrator: ShoppingAgentOrchestrator, session_id: str):
     print("\n请选择反馈类型：")
     print("  1. 满意（加购/下单）")
@@ -318,6 +335,7 @@ def _print_workspace(workspace: dict) -> None:
 # 入口
 # ---------------------------------------------------------------------------
 
+
 def main():
     parser = argparse.ArgumentParser(
         description="SHOP-PLAN Shopping Agent",
@@ -334,7 +352,11 @@ def main():
     p_bench = subparsers.add_parser("benchmark", help="自动评测模式")
     p_bench.add_argument("--rl", action="store_true", help="使用 RL-enhanced 策略")
     p_bench.add_argument("--compare", action="store_true", help="同时跑两种模式并对比")
-    p_bench.add_argument("--baseline-suite", action="store_true", help="运行 full/naive/constraint-only/single-item 对比")
+    p_bench.add_argument(
+        "--baseline-suite",
+        action="store_true",
+        help="运行 full/naive/constraint-only/single-item 对比",
+    )
     p_bench.add_argument("--save", action="store_true", help="保存报告到 logs/")
     p_bench.add_argument("--tasks", default=None, help="逗号分隔的 task_id 列表（默认全量）")
     p_bench.add_argument("--quick", action="store_true", help="使用小任务子集快速验证闭环")

@@ -144,8 +144,12 @@ class TestMetricsComputer:
         assert metrics["success_rate"] == 1.0
 
     def test_compare(self):
-        baseline = self.computer.compute([make_result("t1", success=True, overall_score=0.7)])
-        experiment = self.computer.compute([make_result("t2", success=True, overall_score=0.9)])
+        baseline = self.computer.compute(
+            [make_result("t1", success=True, overall_score=0.7)]
+        )
+        experiment = self.computer.compute(
+            [make_result("t2", success=True, overall_score=0.9)]
+        )
         comparison = self.computer.compare(baseline, experiment)
         assert "success_rate" in comparison
         assert comparison["avg_overall_score"]["delta"] == pytest.approx(0.2, abs=1e-3)
@@ -207,7 +211,9 @@ class TestMetricsComputer:
         assert metrics["clarification_alignment_rate"] == pytest.approx(0.5, abs=1e-4)
         assert metrics["avg_intent_resolution_score"] == pytest.approx(0.65, abs=1e-4)
         assert metrics["avg_execution_readiness_score"] == pytest.approx(0.75, abs=1e-4)
-        assert metrics["avg_plan_persona_alignment_score"] == pytest.approx(0.4, abs=1e-4)
+        assert metrics["avg_plan_persona_alignment_score"] == pytest.approx(
+            0.4, abs=1e-4
+        )
         assert metrics["avg_persona_reason_coverage"] == pytest.approx(0.75, abs=1e-4)
         assert metrics["avg_style_coherence_score"] == pytest.approx(0.65, abs=1e-4)
         assert metrics["avg_bundle_completeness_score"] == pytest.approx(0.8, abs=1e-4)
@@ -220,8 +226,11 @@ class TestMetricsComputer:
         assert metrics["avg_drift_alignment_score"] == pytest.approx(1.0, abs=1e-4)
         assert metrics["failure_bucket_breakdown"]["clarification_failure"] == 1
         assert metrics["task_family_summary"]["bundle"]["num_tasks"] == 1
+        assert metrics["task_family_summary"]["phased_purchase"]["num_tasks"] == 1
         assert metrics["bundle_summary"]["num_tasks"] == 2
-        assert metrics["bundle_summary"]["bundle_success_rate"] == pytest.approx(1.0, abs=1e-4)
+        assert metrics["bundle_summary"]["bundle_success_rate"] == pytest.approx(
+            1.0, abs=1e-4
+        )
 
     def test_bundle_summary_uses_original_task_family(self):
         results = [
@@ -242,4 +251,8 @@ class TestMetricsComputer:
         metrics = self.computer.compute(results)
 
         assert metrics["bundle_summary"]["num_tasks"] == 2
-        assert metrics["bundle_summary"]["bundle_success_rate"] == pytest.approx(0.5, abs=1e-4)
+        assert metrics["bundle_summary"]["bundle_success_rate"] == pytest.approx(
+            0.5, abs=1e-4
+        )
+        assert metrics["task_family_summary"]["bundle"]["num_tasks"] == 1
+        assert metrics["task_family_summary"]["upgrade_path"]["num_tasks"] == 1

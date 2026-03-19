@@ -137,7 +137,7 @@ shopping_agent/
 
 data/
 ├── products.json       # 83 件示例商品（8 品类，含价格梯度/风格差/互补空间）
-└── tasks.json          # 66 条基准任务（bundle-like 主表子集为 32 条）
+└── tasks.json          # 82 条基准任务（bundle-like 主表子集为 39 条）
 
 tests/                  # 93 个单元测试（pytest）
 ```
@@ -198,6 +198,27 @@ bash run.sh
 - 安装了 `scikit-learn`：使用标准 TF-IDF 向量检索实现。
 - 未安装 `scikit-learn`：自动降级到内置的轻量 TF-IDF 实现，基础测试仍可运行。
 
+### 工程质量与 CI
+
+当前开发依赖除了 `pytest` 之外，还包含：
+
+- `pytest-cov`
+- `black`
+- `ruff`
+- `mypy`
+- `build`
+
+CI 现在拆成四层：
+
+- `quality`
+  运行 `black --check`、`ruff check`、`mypy`
+- `pytest`
+  在 Python `3.10 / 3.11 / 3.12` 下执行测试并输出 coverage
+- `benchmark-smoke`
+  跑 baseline suite，并检查主结果摘要与任务分布产物是否生成
+- `build`
+  运行 `python -m build`，验证 packaging 链路
+
 ### 测试
 
 ```bash
@@ -207,6 +228,13 @@ pytest
 ```
 
 当前仓库包含 `93` 个 pytest 单元测试，并通过 GitHub Actions 在多 Python 版本下执行。
+
+默认 benchmark 任务集现在覆盖：
+
+- single-item 与 multi-item bundle
+- hard constraint conflict
+- clarification-heavy cases
+- upgrade-path / phased-purchase 的 long-horizon planning
 
 ### 复现闭环
 
@@ -288,7 +316,12 @@ benchmark 导出报告现在带固定 schema：
 
 任务如果未显式声明 `task_family`，系统会按 `clarification_heavy`、`bundle`、`constraint_dense`、`drift`、`comparison`、`general` 自动归类。
 默认 benchmark 任务集中现在也包含长期升级与分阶段购买样例，例如 `upgrade_path` 和 `phased_purchase`。
-当前默认任务集包含 `66` 条任务，其中 `38` 条是 bundle 任务，并额外覆盖 phased purchase、upgrade path、clarification-heavy、drift、budget-edge 和 relation-sensitive 场景。
+当前默认任务集包含 `82` 条任务，其中：
+
+- `39` 条属于 bundle-like 主表子集（`bundle / upgrade_path / phased_purchase / bundle_noise`）
+- `16` 条需要显式澄清
+- `4` 条是 hard constraint conflict
+- 难度分布为 `easy 21 / medium 33 / hard 28`
 
 ### Baselines
 
@@ -296,8 +329,14 @@ benchmark 导出报告现在带固定 schema：
 
 - `full_agent`
   完整系统
+- `naive_llm_agent`
+  近似“只靠基础检索与直接生成”的弱 agent，不使用 graph / verifier / clarification
 - `naive_retrieval`
   近似只保留基础召回，不使用 graph / verifier / clarification
+- `no_clarification`
+  关闭澄清回合，测试 clarification policy 的必要性
+- `no_constraint`
+  去掉预算/属性约束约束任务定义，测试约束建模的必要性
 - `constraint_only`
   保留约束驱动，但去掉 persona 与长期记忆信号
 - `no_memory`
@@ -318,6 +357,9 @@ python run_benchmark.py --baseline-suite --save
 - `baseline_suite.json`
 - `baseline_suite.md`
 - `baseline_suite.csv`
+- `main_results.md`
+- `task_distribution.json`
+- `task_distribution.md`
 
 默认输出会形成一张对比表，重点观察：
 
@@ -340,6 +382,41 @@ python run_benchmark.py --baseline-suite --save
   验证 bundle-native 决策分是否带来额外增益
 
 其中 `baseline_suite.md / .csv` 会优先使用 `bundle_summary`，也就是 bundle / upgrade / phased_purchase 子集上的主表结果，而不是简单全任务平均。
+
+### How To Read The Results
+
+- `baseline_suite.md`
+  主结果入口，分成 `All-Task Summary` 和 `Bundle-Only Summary` 两张表。
+- `main_results.md`
+  从论文视角提炼的主比较结果，直接展示 `full_agent` 相对关键 baseline 的绝对差值。
+- `task_distribution.md`
+  解释任务分布，避免 reviewer 只看到总数而看不到 task mix。
+
+当前更推荐这样引用结果：
+
+- 总体覆盖/预算稳定性：看 `All-Task Summary`
+- 组合规划、长期记忆、分阶段购买：看 `Bundle-Only Summary`
+- 论文正文主比较：优先引用 `main_results.md`
+
+### About Significance And Variance
+
+当前默认 benchmark 是固定任务集上的确定性评测，因此仓库现在优先报告：
+
+- 绝对指标值
+- baseline 之间的绝对差值
+- 任务分布说明
+
+而不是先给出显著性检验。这样做是为了先确保：
+
+- 口径一致
+- 结果可复现
+- baseline 差异能被直接解释
+
+如果后续要补更标准的统计显著性，下一步建议是：
+
+- 固定 `seed`
+- 对 stochastic 组件进行多次重跑
+- 输出 mean / std 或 confidence interval
 
 ### Recommended Research Question
 

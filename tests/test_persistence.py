@@ -97,6 +97,17 @@ class TestOrchestratorPersistence:
             {"route": "一步到位", "goal": "一次性完成", "budget": 3400},
             {"route": "分阶段升级", "goal": "先核心件后升级", "phase_1_slots": ["monitor"], "phase_1_budget": 2200, "phase_2_slots": ["headset"], "phase_2_budget": 1200},
         ]
+        alt_plan = make_plan(
+            plan_id="plan_alt",
+            task_id="task_workspace",
+            products=[
+                make_product(product_id="p3", category="headset", title="省钱耳机", price=699.0),
+                make_product(product_id="p4", category="monitor", title="入门显示器", price=1599.0),
+            ],
+        )
+        alt_plan.bundle_type = "bundle_plan"
+        alt_plan.bundle_objective = "办公桌搭补齐方案"
+        state.candidate_plans = [state.selected_plan, alt_plan]
 
         state.current_workspace = orchestrator._build_plan_workspace(state)
         response = orchestrator._build_response(state, "这是当前推荐")
@@ -106,11 +117,14 @@ class TestOrchestratorPersistence:
         assert response["plan"]["bundle_type"] == "bundle_plan"
         assert "bundle_decision_score" in response["plan"]
         assert "compatibility_score" in response["plan"]
+        assert "alternatives" in response
+        assert len(response["alternatives"]) == 1
         artifact_types = {artifact["artifact_type"] for artifact in response["workspace"]["artifacts"]}
         assert "growth_snapshot" in artifact_types
         assert "bundle_recommendation" in artifact_types
         assert "phase_plan" in artifact_types
         assert "action_checklist" in artifact_types
+        assert "bundle_alternatives" in artifact_types
 
     def test_restore_session_recovers_workspace(self, tmp_path):
         db = SQLiteDB(db_path=":memory:")

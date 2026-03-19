@@ -703,6 +703,14 @@ class ShoppingAgentOrchestrator:
                 result["plan"]["slot_coverage"] = getattr(
                     state.selected_plan, "slot_coverage", {}
                 )
+        if state.candidate_plans:
+            alternatives = [
+                self._serialize_plan_summary(plan)
+                for plan in state.candidate_plans
+                if state.selected_plan is None or plan.plan_id != state.selected_plan.plan_id
+            ]
+            if alternatives:
+                result["alternatives"] = alternatives[:3]
         if state.current_workspace:
             result["workspace"] = self._serialize_workspace(state.current_workspace)
         return result
@@ -762,6 +770,11 @@ class ShoppingAgentOrchestrator:
             "style_coherence_score": round(plan.style_coherence_score, 3),
             "bundle_completeness_score": round(plan.bundle_completeness_score, 3),
         }
+        alternatives = [
+            self._serialize_plan_summary(candidate)
+            for candidate in state.candidate_plans
+            if candidate.plan_id != plan.plan_id
+        ][:3]
 
         title = plan.bundle_objective or f"{'、'.join(state.task.categories)} 计划"
         return PlanWorkspace(
@@ -808,6 +821,13 @@ class ShoppingAgentOrchestrator:
                     summary="预算压力、风格一致性与长期适配提示",
                     content=tradeoff,
                 ),
+                PlanArtifact(
+                    artifact_id=f"{plan.plan_id}_alternatives",
+                    artifact_type="bundle_alternatives",
+                    title="Bundle Alternatives",
+                    summary="备选 bundle 路线与取舍对比",
+                    content={"alternatives": alternatives},
+                ),
             ],
         )
 
@@ -829,6 +849,35 @@ class ShoppingAgentOrchestrator:
                     "content": artifact.content,
                 }
                 for artifact in workspace.artifacts
+            ],
+        }
+
+    @staticmethod
+    def _serialize_plan_summary(plan: CandidatePlan) -> dict:
+        return {
+            "plan_id": plan.plan_id,
+            "bundle_type": plan.bundle_type,
+            "net_price": round(plan.net_price, 2),
+            "overall_score": round(plan.overall_score, 3),
+            "bundle_decision_score": round(getattr(plan, "bundle_decision_score", 0.0), 3),
+            "bundle_completeness_score": round(getattr(plan, "bundle_completeness_score", 0.0), 3),
+            "compatibility_score": round(getattr(plan, "compatibility_score", 0.0), 3),
+            "relation_coverage_score": round(getattr(plan, "relation_coverage_score", 0.0), 3),
+            "tradeoff_notes": [
+                {
+                    "dimension": note.dimension,
+                    "severity": note.severity,
+                    "note": note.note,
+                }
+                for note in getattr(plan, "tradeoff_notes", [])
+            ],
+            "items": [
+                {
+                    "slot": item.bundle_slot,
+                    "product": item.product.title,
+                    "price": item.product.final_price,
+                }
+                for item in plan.items
             ],
         }
 

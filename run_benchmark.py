@@ -17,7 +17,9 @@ import argparse
 import csv
 import json
 import sys
+from collections import Counter
 from pathlib import Path
+from typing import Any, cast
 
 # 确保项目根目录在 PYTHONPATH 中
 sys.path.insert(0, str(Path(__file__).parent))
@@ -31,9 +33,15 @@ def main():
     parser.add_argument("--compare", action="store_true", help="同时评测两种模式并输出对比")
     parser.add_argument("--tasks", default=None, help="逗号分隔的 task_id（默认全量）")
     parser.add_argument("--save", action="store_true", help="将报告保存到 logs/")
-    parser.add_argument("--verbose", type=int, default=1, help="详细程度：0=只显示summary，1=逐任务（默认）")
+    parser.add_argument(
+        "--verbose", type=int, default=1, help="详细程度：0=只显示summary，1=逐任务（默认）"
+    )
     parser.add_argument("--output-dir", default="logs", help="报告保存目录")
-    parser.add_argument("--baseline-suite", action="store_true", help="运行 full/naive-llm/no-clarification/no-constraint/no-memory/single-item/no-bundle-scoring 等 baseline 对比")
+    parser.add_argument(
+        "--baseline-suite",
+        action="store_true",
+        help="运行 full/naive-llm/no-clarification/no-constraint/no-memory/single-item/no-bundle-scoring 等 baseline 对比",
+    )
     parser.add_argument(
         "--mode",
         choices=["pipeline", "e2e"],
@@ -48,14 +56,42 @@ def main():
     if args.baseline_suite:
         suite = [
             ("full_agent", dict(use_rl=False, baseline_profile="full_agent")),
-            ("naive_llm_agent", dict(use_rl=False, baseline_profile="naive_llm_agent", disable_graph=True, disable_verifier=True, disable_clarification=True)),
-            ("naive_retrieval", dict(use_rl=False, baseline_profile="naive_retrieval", disable_graph=True, disable_verifier=True, disable_clarification=True)),
-            ("no_clarification", dict(use_rl=False, baseline_profile="no_clarification", disable_clarification=True)),
+            (
+                "naive_llm_agent",
+                dict(
+                    use_rl=False,
+                    baseline_profile="naive_llm_agent",
+                    disable_graph=True,
+                    disable_verifier=True,
+                    disable_clarification=True,
+                ),
+            ),
+            (
+                "naive_retrieval",
+                dict(
+                    use_rl=False,
+                    baseline_profile="naive_retrieval",
+                    disable_graph=True,
+                    disable_verifier=True,
+                    disable_clarification=True,
+                ),
+            ),
+            (
+                "no_clarification",
+                dict(
+                    use_rl=False,
+                    baseline_profile="no_clarification",
+                    disable_clarification=True,
+                ),
+            ),
             ("no_constraint", dict(use_rl=False, baseline_profile="no_constraint")),
             ("constraint_only", dict(use_rl=False, baseline_profile="constraint_only")),
             ("no_memory", dict(use_rl=False, baseline_profile="no_memory")),
             ("single_item", dict(use_rl=False, baseline_profile="single_item")),
-            ("no_bundle_scoring", dict(use_rl=False, baseline_profile="no_bundle_scoring")),
+            (
+                "no_bundle_scoring",
+                dict(use_rl=False, baseline_profile="no_bundle_scoring"),
+            ),
         ]
         reports = {}
         for name, kwargs in suite:
@@ -74,12 +110,31 @@ def main():
             json_path = out_dir / "baseline_suite.json"
             md_path = out_dir / "baseline_suite.md"
             csv_path = out_dir / "baseline_suite.csv"
+            main_results_path = out_dir / "main_results.md"
+            task_distribution_json = out_dir / "task_distribution.json"
+            task_distribution_md = out_dir / "task_distribution.md"
             json_path.write_text(json.dumps(reports, ensure_ascii=False, indent=2))
             md_path.write_text(_baseline_suite_markdown(reports), encoding="utf-8")
             _write_baseline_suite_csv(csv_path, reports)
+            main_results_path.write_text(
+                _main_results_markdown(reports),
+                encoding="utf-8",
+            )
+            distribution = _task_distribution_summary(reports)
+            task_distribution_json.write_text(
+                json.dumps(distribution, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            task_distribution_md.write_text(
+                _task_distribution_markdown(distribution),
+                encoding="utf-8",
+            )
             print(f"\nbaseline suite 已保存: {json_path}")
             print(f"markdown 表格已保存: {md_path}")
             print(f"csv 表格已保存: {csv_path}")
+            print(f"主结果摘要已保存: {main_results_path}")
+            print(f"任务分布已保存: {task_distribution_json}")
+            print(f"任务分布说明已保存: {task_distribution_md}")
         return
 
     if args.compare:
@@ -139,29 +194,77 @@ def _print_baseline_suite(reports: dict[str, dict]) -> None:
     print("=" * 88)
 
 
-def _baseline_suite_rows(reports: dict[str, dict]) -> list[dict[str, str | float]]:
-    rows = []
+def _baseline_suite_rows(reports: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
     for name, report in reports.items():
         metrics = report["metrics"]
         bundle_summary = metrics.get("bundle_summary", {})
         avg_budget_ratio = metrics.get("avg_budget_ratio", 0.0)
-        cost_band = "low" if avg_budget_ratio < 0.55 else "mid" if avg_budget_ratio < 0.85 else "high"
-        regret_risk = max(0.0, avg_budget_ratio - metrics.get("budget_satisfaction_rate", 0.0))
+        cost_band = (
+            "low"
+            if avg_budget_ratio < 0.55
+            else "mid"
+            if avg_budget_ratio < 0.85
+            else "high"
+        )
+        regret_risk = max(
+            0.0, avg_budget_ratio - metrics.get("budget_satisfaction_rate", 0.0)
+        )
         rows.append(
             {
                 "method": name,
                 "all_task_success_rate": round(metrics.get("success_rate", 0.0), 4),
                 "coverage": round(metrics.get("coverage", 0.0), 4),
-                "budget_satisfaction_rate": round(metrics.get("budget_satisfaction_rate", 0.0), 4),
-                "bundle_success_rate": round(bundle_summary.get("bundle_success_rate", 0.0), 4),
+                "budget_satisfaction_rate": round(
+                    metrics.get("budget_satisfaction_rate", 0.0), 4
+                ),
+                "bundle_success_rate": round(
+                    bundle_summary.get("bundle_success_rate", 0.0), 4
+                ),
                 "bundle_task_count": int(bundle_summary.get("num_tasks", 0)),
                 "cost_band": cost_band,
-                "bundle_score": round(bundle_summary.get("avg_bundle_decision_score", metrics.get("avg_bundle_decision_score", 0.0)), 4),
-                "bundle_completeness": round(bundle_summary.get("avg_bundle_completeness_score", metrics.get("avg_bundle_completeness_score", 0.0)), 4),
-                "compatibility": round(bundle_summary.get("avg_compatibility_score", metrics.get("avg_compatibility_score", 0.0)), 4),
-                "relation_coverage": round(bundle_summary.get("avg_relation_coverage_score", metrics.get("avg_relation_coverage_score", 0.0)), 4),
-                "long_term_fit": round(bundle_summary.get("avg_long_term_fit_score", metrics.get("avg_long_term_fit_score", 0.0)), 4),
-                "phased_purchase": round(bundle_summary.get("avg_phased_purchase_score", metrics.get("avg_phased_purchase_score", 0.0)), 4),
+                "bundle_score": round(
+                    bundle_summary.get(
+                        "avg_bundle_decision_score",
+                        metrics.get("avg_bundle_decision_score", 0.0),
+                    ),
+                    4,
+                ),
+                "bundle_completeness": round(
+                    bundle_summary.get(
+                        "avg_bundle_completeness_score",
+                        metrics.get("avg_bundle_completeness_score", 0.0),
+                    ),
+                    4,
+                ),
+                "compatibility": round(
+                    bundle_summary.get(
+                        "avg_compatibility_score",
+                        metrics.get("avg_compatibility_score", 0.0),
+                    ),
+                    4,
+                ),
+                "relation_coverage": round(
+                    bundle_summary.get(
+                        "avg_relation_coverage_score",
+                        metrics.get("avg_relation_coverage_score", 0.0),
+                    ),
+                    4,
+                ),
+                "long_term_fit": round(
+                    bundle_summary.get(
+                        "avg_long_term_fit_score",
+                        metrics.get("avg_long_term_fit_score", 0.0),
+                    ),
+                    4,
+                ),
+                "phased_purchase": round(
+                    bundle_summary.get(
+                        "avg_phased_purchase_score",
+                        metrics.get("avg_phased_purchase_score", 0.0),
+                    ),
+                    4,
+                ),
                 "regret_risk": round(regret_risk, 4),
             }
         )
@@ -224,6 +327,127 @@ def _write_baseline_suite_csv(path: Path, reports: dict[str, dict]) -> None:
         )
         writer.writeheader()
         writer.writerows(rows)
+
+
+def _task_distribution_summary(reports: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    reference = reports.get("full_agent") or next(iter(reports.values()))
+    per_task = reference.get("per_task", [])
+    family_counts = Counter(
+        (task.get("original_task_family") or task.get("task_family") or "general")
+        for task in per_task
+    )
+    type_counts = Counter(task.get("task_type") or "unknown" for task in per_task)
+    difficulty_counts = Counter(
+        task.get("task_difficulty") or "unknown" for task in per_task
+    )
+    clarification_needed = sum(
+        1 for task in per_task if task.get("clarification_needed")
+    )
+    bundle_like = sum(
+        1
+        for task in per_task
+        if (task.get("original_task_family") or task.get("task_family"))
+        in {"bundle", "upgrade_path", "phased_purchase", "bundle_noise"}
+    )
+    return {
+        "num_tasks": len(per_task),
+        "bundle_like_tasks": bundle_like,
+        "clarification_needed_tasks": clarification_needed,
+        "task_family_counts": dict(family_counts),
+        "task_type_counts": dict(type_counts),
+        "task_difficulty_counts": dict(difficulty_counts),
+    }
+
+
+def _task_distribution_markdown(summary: dict[str, object]) -> str:
+    family_counts = cast(dict[str, int], summary["task_family_counts"])
+    type_counts = cast(dict[str, int], summary["task_type_counts"])
+    difficulty_counts = cast(dict[str, int], summary["task_difficulty_counts"])
+
+    lines = [
+        "# Task Distribution",
+        "",
+        f"- NumTasks: {summary['num_tasks']}",
+        f"- BundleLikeTasks: {summary['bundle_like_tasks']}",
+        f"- ClarificationNeededTasks: {summary['clarification_needed_tasks']}",
+        "",
+        "## Task Family Counts",
+        "",
+        "| Family | Count |",
+        "|---|---:|",
+    ]
+    for key, value in sorted(family_counts.items()):
+        lines.append(f"| {key} | {value} |")
+
+    lines.extend(
+        [
+            "",
+            "## Task Type Counts",
+            "",
+            "| Type | Count |",
+            "|---|---:|",
+        ]
+    )
+    for key, value in sorted(type_counts.items()):
+        lines.append(f"| {key} | {value} |")
+
+    lines.extend(
+        [
+            "",
+            "## Difficulty Counts",
+            "",
+            "| Difficulty | Count |",
+            "|---|---:|",
+        ]
+    )
+    for key, value in sorted(difficulty_counts.items()):
+        lines.append(f"| {key} | {value} |")
+    return "\n".join(lines) + "\n"
+
+
+def _main_results_markdown(reports: dict[str, dict[str, Any]]) -> str:
+    rows = {row["method"]: row for row in _baseline_suite_rows(reports)}
+    full = rows["full_agent"]
+
+    def _delta(other: str, key: str) -> float:
+        return float(full[key]) - float(rows[other][key])
+
+    lines = [
+        "# Main Results",
+        "",
+        "## Primary Bundle Comparisons",
+        "",
+        "| Comparison | Metric | FullAgent | Baseline | Delta |",
+        "|---|---|---:|---:|---:|",
+    ]
+    comparisons = [
+        ("naive_llm_agent", "bundle_success_rate", "BundleSuccess"),
+        ("no_memory", "bundle_success_rate", "BundleSuccess"),
+        ("single_item", "bundle_success_rate", "BundleSuccess"),
+        ("naive_llm_agent", "bundle_score", "BundleScore"),
+        ("no_memory", "long_term_fit", "LongTermFit"),
+        ("naive_llm_agent", "relation_coverage", "RelationCoverage"),
+    ]
+    for baseline, key, label in comparisons:
+        if baseline not in rows:
+            continue
+        lines.append(
+            f"| full_agent vs {baseline} | {label} | "
+            f"{float(full[key]):.4f} | {float(rows[baseline][key]):.4f} | {_delta(baseline, key):.4f} |"
+        )
+
+    lines.extend(
+        [
+            "",
+            "## Interpretation Notes",
+            "",
+            "- `All-Task Summary` 用于展示总体覆盖和预算满足率。",
+            "- `Bundle-Only Summary` 是主结果表，优先用于说明组合规划、长期记忆与 phased purchase 的贡献。",
+            "- 当前 benchmark 为固定任务集与确定性 pipeline 评测，默认报告绝对差值而非显著性检验。",
+            "- 若需要显著性描述，下一步应基于多 seed / 多次重跑输出均值与波动范围。",
+        ]
+    )
+    return "\n".join(lines) + "\n"
 
 
 if __name__ == "__main__":

@@ -139,7 +139,9 @@ def _bundle_native_success(result: TaskResult) -> bool:
     if result.original_task_family == "upgrade_path":
         return result.long_term_fit_score >= 0.15
     if result.original_task_family == "phased_purchase":
-        return result.phased_purchase_score >= 0.85 and result.long_term_fit_score >= 0.05
+        return (
+            result.phased_purchase_score >= 0.85 and result.long_term_fit_score >= 0.05
+        )
     if result.original_task_family == "bundle_noise":
         return result.bundle_decision_score >= 0.45
     return True
@@ -194,10 +196,9 @@ def _relation_coverage_for_eval(
     original_raw: dict[str, Any],
     selected_plan,
 ) -> float:
-    gold_categories = (
-        original_raw.get("expected", {}).get("gold_categories")
-        or original_raw.get("categories", [])
-    )
+    gold_categories = original_raw.get("expected", {}).get(
+        "gold_categories"
+    ) or original_raw.get("categories", [])
     if len(gold_categories) <= 1:
         return getattr(selected_plan, "relation_coverage_score", 1.0)
     if len(getattr(selected_plan, "items", [])) <= 1:
@@ -220,7 +221,9 @@ def _bundle_score_for_eval(
     return min(1.0, raw_score * gate)
 
 
-def _apply_user_profile_overrides(profile: UserProfile, overrides: dict[str, Any]) -> UserProfile:
+def _apply_user_profile_overrides(
+    profile: UserProfile, overrides: dict[str, Any]
+) -> UserProfile:
     for key, value in overrides.items():
         if hasattr(profile, key):
             setattr(profile, key, value)
@@ -351,6 +354,7 @@ class BenchmarkRunner:
 
             # 直接调用内部步骤（不经过 intent parser，使用已解析的 task）
             from shopping_agent.agent.state import AgentState, WorkflowStep
+
             state = AgentState(session_id=session_id, user_id=self.user_id)
             state.task = task
             self.orchestrator._sessions[session_id] = state
@@ -363,7 +367,9 @@ class BenchmarkRunner:
                     state.user_profile or UserProfile(user_id=self.user_id),
                     raw["user_profile_overrides"],
                 )
-            state.user_profile = self._apply_profile_baseline_profile(state.user_profile)
+            state.user_profile = self._apply_profile_baseline_profile(
+                state.user_profile
+            )
 
             # 检索
             state.transition(WorkflowStep.RETRIEVE)
@@ -397,12 +403,16 @@ class BenchmarkRunner:
             if state.selected_plan:
                 total = state.selected_plan.total_price
                 result.overall_score = state.selected_plan.overall_score
-                result.plan_persona_alignment_score = state.selected_plan.persona_alignment_score
+                result.plan_persona_alignment_score = (
+                    state.selected_plan.persona_alignment_score
+                )
                 result.persona_reason_coverage = self._compute_persona_reason_coverage(
                     state.selected_plan
                 )
                 result.style_coherence_score = state.selected_plan.style_coherence_score
-                result.bundle_completeness_score = state.selected_plan.bundle_completeness_score
+                result.bundle_completeness_score = (
+                    state.selected_plan.bundle_completeness_score
+                )
                 result.compatibility_score = getattr(
                     state.selected_plan, "compatibility_score", 0.0
                 )
@@ -412,18 +422,22 @@ class BenchmarkRunner:
                 )
                 result.long_term_fit_score = state.selected_plan.long_term_fit_score
                 result.phased_purchase_score = state.selected_plan.phased_purchase_score
-                result.budget_satisfied = (budget is None or total <= budget * 1.05)
+                result.budget_satisfied = budget is None or total <= budget * 1.05
                 result.budget_ratio = (total / budget) if budget else 0.0
 
                 # 收集 plan items 的属性，用于 constraint_hit_rate
                 plan_items_with_attrs = []
                 for item in state.selected_plan.items:
-                    plan_items_with_attrs.append({
-                        "slot": item.bundle_slot,
-                        "product_id": item.product.product_id,
-                        "price": item.product.final_price,
-                        "attributes": {a.name: a.value for a in item.product.attributes},
-                    })
+                    plan_items_with_attrs.append(
+                        {
+                            "slot": item.bundle_slot,
+                            "product_id": item.product.product_id,
+                            "price": item.product.final_price,
+                            "attributes": {
+                                a.name: a.value for a in item.product.attributes
+                            },
+                        }
+                    )
                 result.plan_items = plan_items_with_attrs
 
                 required_attrs = expected.get("required_attrs", [])
@@ -450,7 +464,10 @@ class BenchmarkRunner:
                     mean_price = sum(prices) / len(prices)
                     if mean_price > 0:
                         import math
-                        variance = sum((p - mean_price) ** 2 for p in prices) / len(prices)
+
+                        variance = sum((p - mean_price) ** 2 for p in prices) / len(
+                            prices
+                        )
                         result.plan_diversity = math.sqrt(variance) / mean_price
 
                     scores = [p.overall_score for p in all_plans]
@@ -466,7 +483,12 @@ class BenchmarkRunner:
                 )
 
                 result.success = result.has_result and result.budget_satisfied
-                if result.original_task_family in {"bundle", "upgrade_path", "phased_purchase", "bundle_noise"}:
+                if result.original_task_family in {
+                    "bundle",
+                    "upgrade_path",
+                    "phased_purchase",
+                    "bundle_noise",
+                }:
                     result.bundle_success = _bundle_native_success(result)
                 else:
                     result.bundle_success = result.success
@@ -487,7 +509,11 @@ class BenchmarkRunner:
 
         if verbose:
             status = "✓" if result.success else "✗"
-            budget_str = f"¥{result.budget_ratio * (budget or 0):.0f}/{budget}" if budget else "N/A"
+            budget_str = (
+                f"¥{result.budget_ratio * (budget or 0):.0f}/{budget}"
+                if budget
+                else "N/A"
+            )
             recovery_tag = " [graph-repair]" if result.graph_recovery_used else ""
             print(
                 f"  [{status}] {task_id} | score={result.overall_score:.3f} "
@@ -526,8 +552,14 @@ class BenchmarkRunner:
 
             while response.get("needs_input") and not self._disable_clarification:
                 state = self.orchestrator._sessions.get(session_id)
-                question = state.pending_clarifications[0] if state and state.pending_clarifications else None
-                answer = self._answer_clarification(raw, question.slot if question else None)
+                question = (
+                    state.pending_clarifications[0]
+                    if state and state.pending_clarifications
+                    else None
+                )
+                answer = self._answer_clarification(
+                    raw, question.slot if question else None
+                )
                 clarification_turns += 1
                 response = self.orchestrator.continue_session(session_id, answer)
 
@@ -562,7 +594,11 @@ class BenchmarkRunner:
 
         if verbose:
             status = "✓" if result.success else "✗"
-            budget_str = f"¥{result.budget_ratio * (budget or 0):.0f}/{budget}" if budget else "N/A"
+            budget_str = (
+                f"¥{result.budget_ratio * (budget or 0):.0f}/{budget}"
+                if budget
+                else "N/A"
+            )
             recovery_tag = " [graph-repair]" if result.graph_recovery_used else ""
             print(
                 f"  [{status}] {task_id} | turns={result.clarification_turns} "
@@ -631,7 +667,11 @@ class BenchmarkRunner:
             profile.recent_persona_drift = {}
             profile.persona_transition_log = []
 
-        if self._baseline_profile in {"naive_retrieval", "naive_llm_agent", "no_constraint"}:
+        if self._baseline_profile in {
+            "naive_retrieval",
+            "naive_llm_agent",
+            "no_constraint",
+        }:
             profile.brand_weights = {}
             profile.platform_preferences = {}
             profile.category_affinity = {}
@@ -643,7 +683,9 @@ class BenchmarkRunner:
         user_id = f"{self.user_id}_{self._baseline_profile}_{raw['task_id']}"
         profile = self.orchestrator.preference_memory.load(user_id)
         if raw.get("user_profile_overrides"):
-            profile = _apply_user_profile_overrides(profile, raw["user_profile_overrides"])
+            profile = _apply_user_profile_overrides(
+                profile, raw["user_profile_overrides"]
+            )
         profile = self._apply_profile_baseline_profile(profile)
         if profile is not None:
             profile.user_id = user_id
@@ -659,9 +701,15 @@ class BenchmarkRunner:
         expected: dict,
         budget: Optional[float],
     ) -> TaskResult:
-        result.workflow_steps_completed = len({attr.step for attr in state.attribution_trace})
+        result.workflow_steps_completed = len(
+            {attr.step for attr in state.attribution_trace}
+        )
         result.clarification_expected = raw.get("clarification_needed", False)
-        result.clarification_alignment = 1.0 if result.clarification_expected == (result.clarification_turns > 0) else 0.0
+        result.clarification_alignment = (
+            1.0
+            if result.clarification_expected == (result.clarification_turns > 0)
+            else 0.0
+        )
         result.feasibility_expected = expected.get("feasible", True)
         gold_categories = _gold_categories_for_eval(raw, original_raw)
         result.parser_category_match = _safe_ratio_overlap(
@@ -675,12 +723,16 @@ class BenchmarkRunner:
         if state.selected_plan:
             total = state.selected_plan.total_price
             result.overall_score = state.selected_plan.overall_score
-            result.plan_persona_alignment_score = state.selected_plan.persona_alignment_score
+            result.plan_persona_alignment_score = (
+                state.selected_plan.persona_alignment_score
+            )
             result.persona_reason_coverage = self._compute_persona_reason_coverage(
                 state.selected_plan
             )
             result.style_coherence_score = state.selected_plan.style_coherence_score
-            result.bundle_completeness_score = state.selected_plan.bundle_completeness_score
+            result.bundle_completeness_score = (
+                state.selected_plan.bundle_completeness_score
+            )
             result.compatibility_score = getattr(
                 state.selected_plan, "compatibility_score", 0.0
             )
@@ -690,17 +742,21 @@ class BenchmarkRunner:
             )
             result.long_term_fit_score = state.selected_plan.long_term_fit_score
             result.phased_purchase_score = state.selected_plan.phased_purchase_score
-            result.budget_satisfied = (budget is None or total <= budget * 1.05)
+            result.budget_satisfied = budget is None or total <= budget * 1.05
             result.budget_ratio = (total / budget) if budget else 0.0
 
             plan_items_with_attrs = []
             for item in state.selected_plan.items:
-                plan_items_with_attrs.append({
-                    "slot": item.bundle_slot,
-                    "product_id": item.product.product_id,
-                    "price": item.product.final_price,
-                    "attributes": {a.name: a.value for a in item.product.attributes},
-                })
+                plan_items_with_attrs.append(
+                    {
+                        "slot": item.bundle_slot,
+                        "product_id": item.product.product_id,
+                        "price": item.product.final_price,
+                        "attributes": {
+                            a.name: a.value for a in item.product.attributes
+                        },
+                    }
+                )
             result.plan_items = plan_items_with_attrs
 
             required_attrs = expected.get("required_attrs", [])
@@ -724,6 +780,7 @@ class BenchmarkRunner:
                 mean_price = sum(prices) / len(prices)
                 if mean_price > 0:
                     import math
+
                     variance = sum((p - mean_price) ** 2 for p in prices) / len(prices)
                     result.plan_diversity = math.sqrt(variance) / mean_price
 
@@ -738,7 +795,12 @@ class BenchmarkRunner:
                 for attr in state.attribution_trace
             )
             result.success = result.has_result and result.budget_satisfied
-            if result.original_task_family in {"bundle", "upgrade_path", "phased_purchase", "bundle_noise"}:
+            if result.original_task_family in {
+                "bundle",
+                "upgrade_path",
+                "phased_purchase",
+                "bundle_noise",
+            }:
                 result.bundle_success = _bundle_native_success(result)
             else:
                 result.bundle_success = result.success
@@ -751,20 +813,21 @@ class BenchmarkRunner:
                 result.error_type = last_error["error_type"]
             result.plan_category_match = 0.0
 
-        result.feasibility_alignment = 1.0 if result.feasibility_expected == result.has_result else 0.0
+        result.feasibility_alignment = (
+            1.0 if result.feasibility_expected == result.has_result else 0.0
+        )
         result.ended_in_error = state.current_step == WorkflowStep.ERROR
         if result.error and result.error_type is None:
             result.error_type = result.error.split(":", 1)[0]
 
         result.phase_coverage_score = min(1.0, result.workflow_steps_completed / 6.0)
         result.intent_resolution_score = (
-            0.55 * result.parser_category_match +
-            0.45 * result.clarification_alignment
+            0.55 * result.parser_category_match + 0.45 * result.clarification_alignment
         )
         result.execution_readiness_score = (
-            0.4 * result.plan_category_match +
-            0.3 * result.feasibility_alignment +
-            0.3 * result.constraint_hit_rate
+            0.4 * result.plan_category_match
+            + 0.3 * result.feasibility_alignment
+            + 0.3 * result.constraint_hit_rate
         )
         result.failure_bucket = _categorize_failure(result)
 
@@ -793,7 +856,9 @@ class BenchmarkRunner:
 
         if expected_drift_type:
             actual_type = recent.get("type")
-            result.drift_alignment_score = 1.0 if actual_type == expected_drift_type else 0.5
+            result.drift_alignment_score = (
+                1.0 if actual_type == expected_drift_type else 0.5
+            )
             return
 
         result.drift_alignment_score = 1.0
@@ -821,7 +886,9 @@ class BenchmarkRunner:
             return "3天内"
 
         if slot == "categories":
-            categories = raw.get("categories") or expected.get("gold_categories") or ["headset"]
+            categories = (
+                raw.get("categories") or expected.get("gold_categories") or ["headset"]
+            )
             return "、".join(categories)
 
         if slot == "usage_scenario":
@@ -858,7 +925,9 @@ class BenchmarkRunner:
 
         return "都可以"
 
-    def save_report(self, report: dict[str, Any], filename: Optional[str] = None) -> Path:
+    def save_report(
+        self, report: dict[str, Any], filename: Optional[str] = None
+    ) -> Path:
         """保存评测报告，并附带 summary / flat metrics 产物。"""
         if filename is None:
             ts = datetime.now().strftime("%Y%m%d_%H%M%S")

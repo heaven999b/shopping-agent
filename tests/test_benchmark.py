@@ -8,7 +8,13 @@ import json
 from pathlib import Path
 
 from shopping_agent.evaluation.benchmark import BenchmarkRunner
-from run_benchmark import _baseline_suite_markdown, _write_baseline_suite_csv
+from run_benchmark import (
+    _baseline_suite_markdown,
+    _main_results_markdown,
+    _task_distribution_markdown,
+    _task_distribution_summary,
+    _write_baseline_suite_csv,
+)
 
 
 class TestBenchmarkRunnerModes:
@@ -41,7 +47,10 @@ class TestBenchmarkRunnerModes:
         assert report["num_tasks"] == 1
         assert report["report_schema_version"] == "v2"
         assert "report_sections" in report
-        assert report["report_sections"]["evaluation_notes"]["understanding_metrics_mode"] == "proxy_from_structured_tasks"
+        assert (
+            report["report_sections"]["evaluation_notes"]["understanding_metrics_mode"]
+            == "proxy_from_structured_tasks"
+        )
 
     def test_e2e_mode_handles_clarification_task(self, tmp_path):
         tasks = [
@@ -75,7 +84,10 @@ class TestBenchmarkRunnerModes:
 
         assert report["benchmark_mode"] == "e2e"
         assert report["num_tasks"] == 1
-        assert report["report_sections"]["evaluation_notes"]["understanding_metrics_mode"] == "end_to_end"
+        assert (
+            report["report_sections"]["evaluation_notes"]["understanding_metrics_mode"]
+            == "end_to_end"
+        )
         assert report["per_task"][0]["has_result"] is True
         assert report["per_task"][0]["clarification_turns"] >= 1
         assert "avg_parser_category_match" in report["metrics"]
@@ -160,23 +172,31 @@ class TestBenchmarkRunnerModes:
                 },
                 "user_profile_overrides": {
                     "owned_items": [
-                        {"product_id": "owned_keyboard", "category": "keyboard", "brand": "Logitech"}
+                        {
+                            "product_id": "owned_keyboard",
+                            "category": "keyboard",
+                            "brand": "Logitech",
+                        }
                     ],
                     "active_setups": {
                         "monitor_setup": {
                             "owned": ["owned_keyboard"],
                             "missing": ["monitor_arm"],
                             "style": "clean",
-                            "next_best_upgrade": "monitor_arm"
+                            "next_best_upgrade": "monitor_arm",
                         }
                     },
                     "upgrade_stage": {"monitor_setup": "growing"},
-                    "purchase_rhythm": {"avg_spend": 1200.0, "purchase_count": 3, "cadence": "incremental"}
+                    "purchase_rhythm": {
+                        "avg_spend": 1200.0,
+                        "purchase_count": 3,
+                        "cadence": "incremental",
+                    },
                 },
                 "uncertainty_slots": {},
                 "expected": {
                     "required_attrs": [],
-                    "gold_categories": ["monitor", "headset"]
+                    "gold_categories": ["monitor", "headset"],
                 },
             }
         ]
@@ -198,7 +218,9 @@ class TestBenchmarkRunnerModes:
         assert "avg_bundle_decision_score" in report["metrics"]
         assert "avg_long_term_fit_score" in report["metrics"]
         assert "avg_phased_purchase_score" in report["metrics"]
-        assert report["metrics"]["task_family_summary"]["upgrade_path"]["num_tasks"] == 1
+        assert (
+            report["metrics"]["task_family_summary"]["upgrade_path"]["num_tasks"] == 1
+        )
 
     def test_e2e_user_profile_overrides_apply_before_planning(self, tmp_path):
         tasks = [
@@ -213,23 +235,31 @@ class TestBenchmarkRunnerModes:
                 },
                 "user_profile_overrides": {
                     "owned_items": [
-                        {"product_id": "owned_keyboard", "category": "keyboard", "brand": "Logitech"}
+                        {
+                            "product_id": "owned_keyboard",
+                            "category": "keyboard",
+                            "brand": "Logitech",
+                        }
                     ],
                     "active_setups": {
                         "monitor_setup": {
                             "owned": ["owned_keyboard"],
                             "missing": ["monitor_arm"],
                             "style": "clean",
-                            "next_best_upgrade": "monitor_arm"
+                            "next_best_upgrade": "monitor_arm",
                         }
                     },
                     "upgrade_stage": {"monitor_setup": "growing"},
-                    "purchase_rhythm": {"avg_spend": 1200.0, "purchase_count": 3, "cadence": "incremental"}
+                    "purchase_rhythm": {
+                        "avg_spend": 1200.0,
+                        "purchase_count": 3,
+                        "cadence": "incremental",
+                    },
                 },
                 "uncertainty_slots": {},
                 "expected": {
                     "required_attrs": [],
-                    "gold_categories": ["monitor", "headset"]
+                    "gold_categories": ["monitor", "headset"],
                 },
             }
         ]
@@ -257,9 +287,7 @@ class TestBenchmarkRunnerModes:
                 "constraints": {
                     "budget_total": {"value": 5000.0, "severity": "hard"},
                 },
-                "expected": {
-                    "gold_categories": ["monitor", "headset"]
-                },
+                "expected": {"gold_categories": ["monitor", "headset"]},
             }
         ]
         tasks_path = tmp_path / "tasks_parser_eval.json"
@@ -403,13 +431,25 @@ class TestBenchmarkRunnerModes:
                 },
                 "user_profile_overrides": {
                     "owned_items": [
-                        {"product_id": "owned_keyboard", "category": "keyboard", "brand": "Logitech"}
+                        {
+                            "product_id": "owned_keyboard",
+                            "category": "keyboard",
+                            "brand": "Logitech",
+                        }
                     ],
                     "active_setups": {
-                        "monitor_setup": {"owned": ["owned_keyboard"], "missing": ["monitor"], "style": "clean"}
+                        "monitor_setup": {
+                            "owned": ["owned_keyboard"],
+                            "missing": ["monitor"],
+                            "style": "clean",
+                        }
                     },
                     "upgrade_stage": {"monitor_setup": "growing"},
-                    "purchase_rhythm": {"avg_spend": 1200.0, "purchase_count": 3, "cadence": "incremental"},
+                    "purchase_rhythm": {
+                        "avg_spend": 1200.0,
+                        "purchase_count": 3,
+                        "cadence": "incremental",
+                    },
                     "identity_goal": {"professional": 0.8},
                 },
                 "uncertainty_slots": {},
@@ -500,6 +540,15 @@ class TestBenchmarkRunnerModes:
     def test_baseline_suite_writers_emit_markdown_and_csv(self, tmp_path):
         reports = {
             "full_agent": {
+                "per_task": [
+                    {
+                        "task_family": "bundle",
+                        "original_task_family": "bundle",
+                        "task_type": "bundle",
+                        "task_difficulty": "hard",
+                        "clarification_needed": False,
+                    }
+                ],
                 "metrics": {
                     "success_rate": 0.8,
                     "avg_budget_ratio": 0.72,
@@ -508,9 +557,18 @@ class TestBenchmarkRunnerModes:
                     "avg_bundle_completeness_score": 0.95,
                     "avg_compatibility_score": 0.88,
                     "avg_long_term_fit_score": 0.76,
-                }
+                },
             },
             "no_memory": {
+                "per_task": [
+                    {
+                        "task_family": "upgrade_path",
+                        "original_task_family": "upgrade_path",
+                        "task_type": "bundle",
+                        "task_difficulty": "medium",
+                        "clarification_needed": False,
+                    }
+                ],
                 "metrics": {
                     "success_rate": 0.74,
                     "avg_budget_ratio": 0.58,
@@ -519,9 +577,18 @@ class TestBenchmarkRunnerModes:
                     "avg_bundle_completeness_score": 0.83,
                     "avg_compatibility_score": 0.82,
                     "avg_long_term_fit_score": 0.03,
-                }
+                },
             },
             "single_item": {
+                "per_task": [
+                    {
+                        "task_family": "clarification_heavy",
+                        "original_task_family": "clarification_heavy",
+                        "task_type": "single",
+                        "task_difficulty": "easy",
+                        "clarification_needed": True,
+                    }
+                ],
                 "metrics": {
                     "success_rate": 0.6,
                     "avg_budget_ratio": 0.51,
@@ -530,7 +597,7 @@ class TestBenchmarkRunnerModes:
                     "avg_bundle_completeness_score": 0.41,
                     "avg_compatibility_score": 0.35,
                     "avg_long_term_fit_score": 0.29,
-                }
+                },
             },
         }
 
@@ -546,7 +613,22 @@ class TestBenchmarkRunnerModes:
         csv_path = Path(tmp_path / "baseline_suite.csv")
         _write_baseline_suite_csv(csv_path, reports)
         text = csv_path.read_text(encoding="utf-8")
-        assert "method,all_task_success_rate,coverage,budget_satisfaction_rate,bundle_success_rate,bundle_task_count,cost_band,bundle_score" in text
+        assert (
+            "method,all_task_success_rate,coverage,budget_satisfaction_rate,bundle_success_rate,bundle_task_count,cost_band,bundle_score"
+            in text
+        )
         assert "relation_coverage" in text
         assert "full_agent" in text
         assert "no_memory" in text
+
+        distribution = _task_distribution_summary(reports)
+        assert distribution["num_tasks"] == 1
+        assert distribution["bundle_like_tasks"] == 1
+        dist_md = _task_distribution_markdown(distribution)
+        assert "Task Distribution" in dist_md
+        assert "BundleLikeTasks" in dist_md
+
+        main_md = _main_results_markdown(reports)
+        assert "Main Results" in main_md
+        assert "Primary Bundle Comparisons" in main_md
+        assert "Interpretation Notes" in main_md
