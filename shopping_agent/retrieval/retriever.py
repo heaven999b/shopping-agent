@@ -1,10 +1,11 @@
 """
 HybridRetriever — 多通道商品召回器。
 
-三路召回（按优先级）：
+四路召回（按优先级）：
   1. 属性精确过滤：按硬约束过滤（预算/时效/必要属性）
   2. 关键词匹配：在 title/brand 上做词袋匹配
-  3. 用户画像重排：偏好品牌提权，价格敏感度调整
+  3. TF-IDF 语义向量检索：覆盖关键词遗漏的语义相关商品
+  4. 用户画像重排：偏好品牌提权，价格敏感度调整
 
 数据后端：ProductCatalog（加载自 data/products.json）。
 生产环境可替换为电商 API，接口不变。
@@ -12,12 +13,16 @@ HybridRetriever — 多通道商品召回器。
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Optional
 
 from shopping_agent.common.constants import RETRIEVAL_TOP_K
 from shopping_agent.common.exceptions import NoProductFoundError
 from shopping_agent.common.types import Product, ShoppingTask, UserProfile
 from shopping_agent.data.loader import ProductCatalog, get_catalog
+from shopping_agent.retrieval.vector_index import TFIDFVectorIndex
+
+logger = logging.getLogger(__name__)
 
 
 # 约束键名 → 商品属性名 的映射表
@@ -52,14 +57,29 @@ class HybridRetriever:
     默认使用全局单例（自动加载 data/products.json）。
     """
 
-    def __init__(self, catalog: Optional[ProductCatalog] = None):
-        self._catalog = catalog  # 延迟初始化，首次 retrieve 时加载
+    def __init__(
+        self,
+        catalog: Optional[ProductCatalog] = None,
+        vector_index: Optional[TFIDFVectorIndex] = None,
+    ):
+        self._catalog = catalog      # 延迟初始化，首次 retrieve 时加载
+        self._vector_index = vector_index  # 延迟构建
 
     @property
     def catalog(self) -> ProductCatalog:
         if self._catalog is None:
             self._catalog = get_catalog()
         return self._catalog
+
+    @property
+    def vector_index(self) -> TFIDFVectorIndex:
+        """懒构建 TF-IDF 索引（首次访问时从 catalog 构建）。"""
+        if self._vector_index is None:
+            self._vector_index = TFIDFVectorIndex()
+        if not self._vector_index.is_built:
+            all_products = self.catalog.search(top_k=9999)
+            self._vector_index.build(all_products)
+        return self._vector_index
 
     def retrieve(
         self,
@@ -118,6 +138,22 @@ class HybridRetriever:
                         top_k=5,
                     )
                     candidates = self._merge_dedupe(candidates, extra)
+
+            # TF-IDF 语义向量补充：覆盖关键词匹配遗漏的语义相关商品
+            if len(candidates) < per_cat_k:
+                try:
+                    vec_results = self.vector_index.search_products(
+                        query=task.raw_query,
+                        top_k=per_cat_k,
+                        category_filter=category,
+                        score_threshold=0.01,
+                    )
+                    # 预算过滤（向量检索不带预算约束，需手动过滤）
+                    if budget:
+                        vec_results = [p for p in vec_results if p.final_price <= budget]
+                    candidates = self._merge_dedupe(candidates, vec_results)
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("TF-IDF search failed for category=%s: %s", category, exc)
 
             all_candidates.extend(candidates)
 
