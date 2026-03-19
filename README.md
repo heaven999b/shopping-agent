@@ -137,7 +137,7 @@ shopping_agent/
 
 data/
 ├── products.json       # 27 件示例商品（8 品类）
-└── tasks.json          # 含 bundle / drift / phased_purchase / upgrade_path 的基准任务集
+└── tasks.json          # 66 条基准任务（其中 38 条 bundle 任务）
 
 tests/                  # 93 个单元测试（pytest）
 ```
@@ -166,7 +166,7 @@ python main.py benchmark --compare
 python run_benchmark.py --mode pipeline   # 模块级 benchmark
 python run_benchmark.py --mode e2e        # 端到端 benchmark（走公开入口）
 python run_benchmark.py --mode e2e --save # 保存完整报告 + summary + metrics + per_task
-python run_benchmark.py --baseline-suite  # 运行 full / naive / constraint-only / single-item 对比
+python run_benchmark.py --baseline-suite  # 运行 full / naive / constraint-only / no-memory / single-item / no_bundle_scoring 对比
 
 # RL-enhanced 策略训练（增强模块）
 python main.py train --pretrain --synthetic
@@ -252,6 +252,8 @@ bash run.sh
 - 单品画像理由覆盖率 `avg_persona_reason_coverage`
 - 风格统一分 `avg_style_coherence_score`
 - 组合完整度 `avg_bundle_completeness_score`
+- 组合兼容分 `avg_compatibility_score`
+- bundle 原生决策分 `avg_bundle_decision_score`
 - 长期适配分 `avg_long_term_fit_score`
 - 分阶段购买分 `avg_phased_purchase_score`
 - drift 检测率 `drift_detection_rate`
@@ -286,6 +288,7 @@ benchmark 导出报告现在带固定 schema：
 
 任务如果未显式声明 `task_family`，系统会按 `clarification_heavy`、`bundle`、`constraint_dense`、`drift`、`comparison`、`general` 自动归类。
 默认 benchmark 任务集中现在也包含长期升级与分阶段购买样例，例如 `upgrade_path` 和 `phased_purchase`。
+当前默认任务集包含 `66` 条任务，其中 `38` 条是 bundle 任务，并额外覆盖 phased purchase、upgrade path、clarification-heavy、drift、budget-edge 和 relation-sensitive 场景。
 
 ### Baselines
 
@@ -297,8 +300,12 @@ benchmark 导出报告现在带固定 schema：
   近似只保留基础召回，不使用 graph / verifier / clarification
 - `constraint_only`
   保留约束驱动，但去掉 persona 与长期记忆信号
+- `no_memory`
+  保留 bundle/planning/persona，但去掉长期用户成长状态（owned_items / active_setups / upgrade_stage / purchase_rhythm）
 - `single_item`
   将多品类任务退化为单品推荐
+- `no_bundle_scoring`
+  保留多商品输出，但关闭 bundle-native 决策分，验证组合级打分本身的必要性
 
 运行方式：
 
@@ -306,12 +313,33 @@ benchmark 导出报告现在带固定 schema：
 python run_benchmark.py --baseline-suite --save
 ```
 
+保存后会额外生成：
+
+- `baseline_suite.json`
+- `baseline_suite.md`
+- `baseline_suite.csv`
+
 默认输出会形成一张对比表，重点观察：
 
 - `success_rate`
+- `bundle_success_rate`
 - `avg_bundle_completeness_score`
+- `avg_compatibility_score`
+- `avg_bundle_decision_score`
 - `avg_long_term_fit_score`
+- `avg_phased_purchase_score`
 - 预算压力近似值 `RegretRisk`
+
+当前更推荐把 `bundle_success_rate` 作为 bundle 主表核心指标来读：
+
+- `full_agent vs single_item`
+  验证组合级规划本身是否必要
+- `full_agent vs no_memory`
+  验证长期用户成长建模是否真正提升 long-horizon 任务完成度
+- `full_agent vs no_bundle_scoring`
+  验证 bundle-native 决策分是否带来额外增益
+
+其中 `baseline_suite.md / .csv` 会优先使用 `bundle_summary`，也就是 bundle / upgrade / phased_purchase 子集上的主表结果，而不是简单全任务平均。
 
 ### Recommended Research Question
 
@@ -337,6 +365,7 @@ python run_benchmark.py --baseline-suite --save
 ### 系统化推荐与计划工作台
 
 - `BundlePlan` 已经成为组合级方案对象，支持 `slot_coverage`、`compatibility_score`、`bundle_objective`、`budget_allocation`、`style_coherence_score`、`bundle_completeness_score`、`long_term_fit_score`、`phased_upgrade_plan`。
+- `BundlePlan` 当前会显式计算 `bundle_decision_score`，不再只是多个 item 分数汇总；该分数会联合考虑 slot coverage、relation-based compatibility、style coherence、long-term fit 与 phased purchase。
 - `CandidatePlan` 目前仍保留为兼容基类，方便已有 verifier / cart / explainer 链路逐步迁移。
 - orchestrator 会返回结构化 `workspace`，而不只是自然语言回答。
 - 当前 `workspace` 默认包含这些 artifact：
@@ -364,6 +393,8 @@ python run_benchmark.py --baseline-suite --save
    当 catalog 中缺少互补/替代关系时，组合完整度会下降。
 4. **Persona misinterpretation**
    当用户表达含糊或 drift 很快时，可能出现风格匹配偏差。
+5. **Bundle incompleteness / incompatibility**
+   当关系边不足或组合预算过紧时，可能出现 slot 未补齐或整体兼容性不足。
 
 Future work will focus on stronger intent disambiguation, richer product relation modeling, and more robust long-horizon state tracking.
 

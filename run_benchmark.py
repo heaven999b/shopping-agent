@@ -14,6 +14,7 @@ Standalone benchmark runner.
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import sys
 from pathlib import Path
@@ -32,7 +33,7 @@ def main():
     parser.add_argument("--save", action="store_true", help="将报告保存到 logs/")
     parser.add_argument("--verbose", type=int, default=1, help="详细程度：0=只显示summary，1=逐任务（默认）")
     parser.add_argument("--output-dir", default="logs", help="报告保存目录")
-    parser.add_argument("--baseline-suite", action="store_true", help="运行 full/naive/constraint-only/single-item 四组对比")
+    parser.add_argument("--baseline-suite", action="store_true", help="运行 full/naive/constraint-only/no-memory/single-item/no-bundle-scoring 六组对比")
     parser.add_argument(
         "--mode",
         choices=["pipeline", "e2e"],
@@ -49,7 +50,9 @@ def main():
             ("full_agent", dict(use_rl=False, baseline_profile="full_agent")),
             ("naive_retrieval", dict(use_rl=False, baseline_profile="naive_retrieval", disable_graph=True, disable_verifier=True, disable_clarification=True)),
             ("constraint_only", dict(use_rl=False, baseline_profile="constraint_only")),
+            ("no_memory", dict(use_rl=False, baseline_profile="no_memory")),
             ("single_item", dict(use_rl=False, baseline_profile="single_item")),
+            ("no_bundle_scoring", dict(use_rl=False, baseline_profile="no_bundle_scoring")),
         ]
         reports = {}
         for name, kwargs in suite:
@@ -64,9 +67,16 @@ def main():
             reports[name] = runner.run(task_ids=task_ids, verbose=verbose)
         _print_baseline_suite(reports)
         if args.save:
-            path = Path(args.output_dir) / "baseline_suite.json"
-            path.write_text(json.dumps(reports, ensure_ascii=False, indent=2))
-            print(f"\nbaseline suite 已保存: {path}")
+            out_dir = Path(args.output_dir)
+            json_path = out_dir / "baseline_suite.json"
+            md_path = out_dir / "baseline_suite.md"
+            csv_path = out_dir / "baseline_suite.csv"
+            json_path.write_text(json.dumps(reports, ensure_ascii=False, indent=2))
+            md_path.write_text(_baseline_suite_markdown(reports), encoding="utf-8")
+            _write_baseline_suite_csv(csv_path, reports)
+            print(f"\nbaseline suite 已保存: {json_path}")
+            print(f"markdown 表格已保存: {md_path}")
+            print(f"csv 表格已保存: {csv_path}")
         return
 
     if args.compare:
@@ -124,38 +134,68 @@ def _print_baseline_suite(reports: dict[str, dict]) -> None:
     print("\n" + "=" * 88)
     print("  Baseline Suite")
     print("=" * 88)
-    print(
-        f"  {'Method':<20} {'Success':>10} {'Cost':>10} {'Bundle':>10} {'LongTerm':>10} {'RegretRisk':>12}"
-    )
-    print("  " + "-" * 82)
+
+
+def _baseline_suite_rows(reports: dict[str, dict]) -> list[dict[str, str | float]]:
+    rows = []
     for name, report in reports.items():
         metrics = report["metrics"]
+        bundle_summary = metrics.get("bundle_summary", {})
         avg_budget_ratio = metrics.get("avg_budget_ratio", 0.0)
         cost_band = "low" if avg_budget_ratio < 0.55 else "mid" if avg_budget_ratio < 0.85 else "high"
         regret_risk = max(0.0, avg_budget_ratio - metrics.get("budget_satisfaction_rate", 0.0))
-        print(
-            f"  {name:<20} "
-            f"{metrics.get('success_rate', 0.0):>10.2%} "
-            f"{cost_band:>10} "
-            f"{metrics.get('avg_bundle_completeness_score', 0.0):>10.3f} "
-            f"{metrics.get('avg_long_term_fit_score', 0.0):>10.3f} "
-            f"{regret_risk:>12.3f}"
+        rows.append(
+            {
+                "method": name,
+                "success_rate": round(metrics.get("success_rate", 0.0), 4),
+                "bundle_success_rate": round(bundle_summary.get("bundle_success_rate", 0.0), 4),
+                "cost_band": cost_band,
+                "bundle_score": round(bundle_summary.get("avg_bundle_decision_score", metrics.get("avg_bundle_decision_score", 0.0)), 4),
+                "bundle_completeness": round(bundle_summary.get("avg_bundle_completeness_score", metrics.get("avg_bundle_completeness_score", 0.0)), 4),
+                "compatibility": round(bundle_summary.get("avg_compatibility_score", metrics.get("avg_compatibility_score", 0.0)), 4),
+                "long_term_fit": round(bundle_summary.get("avg_long_term_fit_score", metrics.get("avg_long_term_fit_score", 0.0)), 4),
+                "phased_purchase": round(bundle_summary.get("avg_phased_purchase_score", metrics.get("avg_phased_purchase_score", 0.0)), 4),
+                "regret_risk": round(regret_risk, 4),
+            }
         )
-    print("=" * 88)
-    header = f"  {'Metric':<38} {'Heuristic':>10} {'RL+':>10} {'Delta':>12}"
-    print(header)
-    print("  " + "-" * 66)
-    for metric, vals in comparison.items():
-        keys = list(vals.keys())
-        baseline_key = keys[0]
-        exp_key = keys[1]
-        b = vals[baseline_key]
-        e = vals[exp_key]
-        delta = vals["delta"]
-        rel = vals["relative_pct"]
-        sign = "+" if delta >= 0 else ""
-        print(f"  {metric:<38} {b:>10.4f} {e:>10.4f} {sign}{delta:.4f} ({sign}{rel:.1f}%)")
-    print("=" * 70)
+    return rows
+
+
+def _baseline_suite_markdown(reports: dict[str, dict]) -> str:
+    rows = _baseline_suite_rows(reports)
+    lines = [
+        "| Method | Success | BundleSuccess | Cost | BundleScore | BundleCompleteness | Compatibility | LongTermFit | PhasedPurchase | RegretRisk |",
+        "|---|---:|---:|---|---:|---:|---:|---:|---:|---:|",
+    ]
+    for row in rows:
+        lines.append(
+            f"| {row['method']} | {row['success_rate']:.2%} | {row['bundle_success_rate']:.2%} | {row['cost_band']} | "
+            f"{row['bundle_score']:.4f} | {row['bundle_completeness']:.4f} | "
+            f"{row['compatibility']:.4f} | {row['long_term_fit']:.4f} | {row['phased_purchase']:.4f} | {row['regret_risk']:.4f} |"
+        )
+    return "\n".join(lines) + "\n"
+
+
+def _write_baseline_suite_csv(path: Path, reports: dict[str, dict]) -> None:
+    rows = _baseline_suite_rows(reports)
+    with path.open("w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(
+            f,
+            fieldnames=[
+                "method",
+                "success_rate",
+                "bundle_success_rate",
+                "cost_band",
+                "bundle_score",
+                "bundle_completeness",
+                "compatibility",
+                "long_term_fit",
+                "phased_purchase",
+                "regret_risk",
+            ],
+        )
+        writer.writeheader()
+        writer.writerows(rows)
 
 
 if __name__ == "__main__":

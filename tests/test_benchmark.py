@@ -5,8 +5,10 @@ tests/test_benchmark.py — BenchmarkRunner 评测模式测试。
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 from shopping_agent.evaluation.benchmark import BenchmarkRunner
+from run_benchmark import _baseline_suite_markdown, _write_baseline_suite_csv
 
 
 class TestBenchmarkRunnerModes:
@@ -190,6 +192,8 @@ class TestBenchmarkRunnerModes:
         assert per_task["task_family"] == "upgrade_path"
         assert "avg_style_coherence_score" in report["metrics"]
         assert "avg_bundle_completeness_score" in report["metrics"]
+        assert "avg_compatibility_score" in report["metrics"]
+        assert "avg_bundle_decision_score" in report["metrics"]
         assert "avg_long_term_fit_score" in report["metrics"]
         assert "avg_phased_purchase_score" in report["metrics"]
         assert report["metrics"]["task_family_summary"]["upgrade_path"]["num_tasks"] == 1
@@ -250,3 +254,155 @@ class TestBenchmarkRunnerModes:
         report = runner.run(verbose=False)
 
         assert report["baseline_profile"] == "single_item"
+
+    def test_single_item_baseline_preserves_original_bundle_family(self, tmp_path):
+        tasks = [
+            {
+                "task_id": "tb007b",
+                "query": "帮我补一套桌搭，已有键盘，还缺显示器和耳机",
+                "task_type": "bundle",
+                "categories": ["monitor", "headset"],
+                "constraints": {
+                    "budget_total": {"value": 5000.0, "severity": "hard"},
+                },
+                "uncertainty_slots": {},
+                "expected": {"required_attrs": []},
+            }
+        ]
+        tasks_path = tmp_path / "tasks_baseline_family.json"
+        tasks_path.write_text(json.dumps(tasks, ensure_ascii=False), encoding="utf-8")
+
+        runner = BenchmarkRunner(
+            benchmark_mode="pipeline",
+            tasks_path=str(tasks_path),
+            output_dir=str(tmp_path / "logs"),
+            baseline_profile="single_item",
+        )
+        report = runner.run(verbose=False)
+
+        per_task = report["per_task"][0]
+        assert per_task["task_family"] == "general"
+        assert per_task["original_task_family"] == "bundle"
+        assert report["metrics"]["bundle_summary"]["num_tasks"] == 1
+
+    def test_no_bundle_scoring_baseline_is_reflected_in_report(self, tmp_path):
+        tasks = [
+            {
+                "task_id": "tb008",
+                "query": "帮我配一套办公桌搭，显示器和键盘都要",
+                "task_type": "bundle",
+                "categories": ["monitor", "keyboard"],
+                "constraints": {
+                    "budget_total": {"value": 5000.0, "severity": "hard"},
+                },
+                "uncertainty_slots": {},
+                "expected": {"required_attrs": []},
+            }
+        ]
+        tasks_path = tmp_path / "tasks_no_bundle.json"
+        tasks_path.write_text(json.dumps(tasks, ensure_ascii=False), encoding="utf-8")
+
+        runner = BenchmarkRunner(
+            benchmark_mode="pipeline",
+            tasks_path=str(tasks_path),
+            output_dir=str(tmp_path / "logs"),
+            baseline_profile="no_bundle_scoring",
+        )
+        report = runner.run(verbose=False)
+
+        assert report["baseline_profile"] == "no_bundle_scoring"
+
+    def test_no_memory_baseline_clears_long_horizon_profile(self, tmp_path):
+        tasks = [
+            {
+                "task_id": "tb008b",
+                "query": "帮我在已有桌搭基础上补一套升级方案",
+                "task_type": "bundle",
+                "task_family": "upgrade_path",
+                "categories": ["monitor", "headset"],
+                "constraints": {
+                    "budget_total": {"value": 5000.0, "severity": "hard"},
+                },
+                "user_profile_overrides": {
+                    "owned_items": [
+                        {"product_id": "owned_keyboard", "category": "keyboard", "brand": "Logitech"}
+                    ],
+                    "active_setups": {
+                        "monitor_setup": {"owned": ["owned_keyboard"], "missing": ["monitor"], "style": "clean"}
+                    },
+                    "upgrade_stage": {"monitor_setup": "growing"},
+                    "purchase_rhythm": {"avg_spend": 1200.0, "purchase_count": 3, "cadence": "incremental"},
+                    "identity_goal": {"professional": 0.8},
+                },
+                "uncertainty_slots": {},
+                "expected": {"required_attrs": []},
+            }
+        ]
+        tasks_path = tmp_path / "tasks_no_memory.json"
+        tasks_path.write_text(json.dumps(tasks, ensure_ascii=False), encoding="utf-8")
+
+        runner = BenchmarkRunner(
+            benchmark_mode="pipeline",
+            tasks_path=str(tasks_path),
+            output_dir=str(tmp_path / "logs"),
+            baseline_profile="no_memory",
+        )
+        report = runner.run(verbose=False)
+
+        assert report["baseline_profile"] == "no_memory"
+        state = next(iter(runner.orchestrator._sessions.values()))
+        assert state.user_profile is not None
+        assert state.user_profile.identity_goal == {"professional": 0.8}
+        assert state.user_profile.owned_items == []
+        assert state.user_profile.active_setups == {}
+        assert state.user_profile.upgrade_stage == {}
+        assert state.user_profile.purchase_rhythm == {}
+
+    def test_baseline_suite_writers_emit_markdown_and_csv(self, tmp_path):
+        reports = {
+            "full_agent": {
+                "metrics": {
+                    "success_rate": 0.8,
+                    "avg_budget_ratio": 0.72,
+                    "budget_satisfaction_rate": 0.9,
+                    "avg_bundle_decision_score": 0.81,
+                    "avg_bundle_completeness_score": 0.95,
+                    "avg_compatibility_score": 0.88,
+                    "avg_long_term_fit_score": 0.76,
+                }
+            },
+            "no_memory": {
+                "metrics": {
+                    "success_rate": 0.74,
+                    "avg_budget_ratio": 0.58,
+                    "budget_satisfaction_rate": 0.88,
+                    "avg_bundle_decision_score": 0.57,
+                    "avg_bundle_completeness_score": 0.83,
+                    "avg_compatibility_score": 0.82,
+                    "avg_long_term_fit_score": 0.03,
+                }
+            },
+            "single_item": {
+                "metrics": {
+                    "success_rate": 0.6,
+                    "avg_budget_ratio": 0.51,
+                    "budget_satisfaction_rate": 0.84,
+                    "avg_bundle_decision_score": 0.32,
+                    "avg_bundle_completeness_score": 0.41,
+                    "avg_compatibility_score": 0.35,
+                    "avg_long_term_fit_score": 0.29,
+                }
+            },
+        }
+
+        md = _baseline_suite_markdown(reports)
+        assert "| Method | Success | BundleSuccess | Cost | BundleScore |" in md
+        assert "full_agent" in md
+        assert "no_memory" in md
+
+        csv_path = Path(tmp_path / "baseline_suite.csv")
+        _write_baseline_suite_csv(csv_path, reports)
+        text = csv_path.read_text(encoding="utf-8")
+        assert "method,success_rate,bundle_success_rate,cost_band,bundle_score" in text
+        assert "full_agent" in text
+        assert "no_memory" in text

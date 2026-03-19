@@ -39,18 +39,24 @@ def make_result(
     persona_reason_coverage: float = 0.0,
     style_coherence_score: float = 0.0,
     bundle_completeness_score: float = 0.0,
+    compatibility_score: float = 0.0,
+    bundle_decision_score: float = 0.0,
     long_term_fit_score: float = 0.0,
     phased_purchase_score: float = 0.0,
     drift_expected: bool = False,
     drift_detected: bool = False,
     drift_alignment_score: float = 0.0,
     failure_bucket: str | None = None,
+    task_family: str = "general",
+    bundle_success: bool | None = None,
 ) -> TaskResult:
     return TaskResult(
         task_id=task_id,
         query="test query",
-        task_family="general",
+        task_family=task_family,
+        original_task_family=task_family,
         success=success,
+        bundle_success=success if bundle_success is None else bundle_success,
         has_result=has_result,
         budget_satisfied=budget_satisfied,
         constraint_hit_rate=constraint_hit_rate,
@@ -71,6 +77,8 @@ def make_result(
         persona_reason_coverage=persona_reason_coverage,
         style_coherence_score=style_coherence_score,
         bundle_completeness_score=bundle_completeness_score,
+        compatibility_score=compatibility_score,
+        bundle_decision_score=bundle_decision_score,
         long_term_fit_score=long_term_fit_score,
         phased_purchase_score=phased_purchase_score,
         drift_expected=drift_expected,
@@ -144,6 +152,7 @@ class TestMetricsComputer:
         results = [
             make_result(
                 "t1",
+                task_family="bundle",
                 parser_category_match=1.0,
                 plan_category_match=0.5,
                 clarification_alignment=1.0,
@@ -155,6 +164,8 @@ class TestMetricsComputer:
                 persona_reason_coverage=1.0,
                 style_coherence_score=0.9,
                 bundle_completeness_score=1.0,
+                compatibility_score=0.8,
+                bundle_decision_score=0.75,
                 long_term_fit_score=0.8,
                 phased_purchase_score=0.7,
                 drift_expected=True,
@@ -164,6 +175,7 @@ class TestMetricsComputer:
             ),
             make_result(
                 "t2",
+                task_family="phased_purchase",
                 parser_category_match=0.5,
                 plan_category_match=1.0,
                 clarification_alignment=0.0,
@@ -175,6 +187,8 @@ class TestMetricsComputer:
                 persona_reason_coverage=0.5,
                 style_coherence_score=0.4,
                 bundle_completeness_score=0.6,
+                compatibility_score=0.5,
+                bundle_decision_score=0.45,
                 long_term_fit_score=0.5,
                 phased_purchase_score=0.4,
                 drift_expected=False,
@@ -193,9 +207,34 @@ class TestMetricsComputer:
         assert metrics["avg_persona_reason_coverage"] == pytest.approx(0.75, abs=1e-4)
         assert metrics["avg_style_coherence_score"] == pytest.approx(0.65, abs=1e-4)
         assert metrics["avg_bundle_completeness_score"] == pytest.approx(0.8, abs=1e-4)
+        assert metrics["avg_compatibility_score"] == pytest.approx(0.65, abs=1e-4)
+        assert metrics["avg_bundle_decision_score"] == pytest.approx(0.6, abs=1e-4)
         assert metrics["avg_long_term_fit_score"] == pytest.approx(0.65, abs=1e-4)
         assert metrics["avg_phased_purchase_score"] == pytest.approx(0.55, abs=1e-4)
         assert metrics["drift_detection_rate"] == pytest.approx(0.5, abs=1e-4)
         assert metrics["avg_drift_alignment_score"] == pytest.approx(1.0, abs=1e-4)
         assert metrics["failure_bucket_breakdown"]["clarification_failure"] == 1
-        assert metrics["task_family_summary"]["general"]["num_tasks"] == 2
+        assert metrics["task_family_summary"]["bundle"]["num_tasks"] == 1
+        assert metrics["bundle_summary"]["num_tasks"] == 2
+        assert metrics["bundle_summary"]["bundle_success_rate"] == pytest.approx(1.0, abs=1e-4)
+
+    def test_bundle_summary_uses_original_task_family(self):
+        results = [
+            make_result(
+                "t1",
+                task_family="single",
+                bundle_success=True,
+            ),
+            make_result(
+                "t2",
+                task_family="single",
+                bundle_success=False,
+            ),
+        ]
+        results[0].original_task_family = "bundle"
+        results[1].original_task_family = "upgrade_path"
+
+        metrics = self.computer.compute(results)
+
+        assert metrics["bundle_summary"]["num_tasks"] == 2
+        assert metrics["bundle_summary"]["bundle_success_rate"] == pytest.approx(0.5, abs=1e-4)

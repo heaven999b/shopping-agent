@@ -111,6 +111,10 @@ def _categorize_failure(result: TaskResult) -> str:
         return "runtime_failure"
     if result.clarification_expected and result.clarification_alignment < 1.0:
         return "clarification_failure"
+    if result.has_result and result.bundle_completeness_score < 0.999:
+        return "bundle_incomplete"
+    if result.has_result and result.compatibility_score < 0.55:
+        return "bundle_incompatible"
     if result.has_result and not result.budget_satisfied:
         return "budget_violation"
     if result.has_result and result.constraint_hit_rate < 1.0:
@@ -120,6 +124,25 @@ def _categorize_failure(result: TaskResult) -> str:
     if not result.has_result:
         return "coverage_failure"
     return "unknown_failure"
+
+
+def _bundle_native_success(result: TaskResult) -> bool:
+    base_ok = (
+        result.has_result
+        and result.budget_satisfied
+        and result.bundle_completeness_score >= 0.999
+        and result.compatibility_score >= 0.6
+    )
+    if not base_ok:
+        return False
+
+    if result.original_task_family == "upgrade_path":
+        return result.long_term_fit_score >= 0.15
+    if result.original_task_family == "phased_purchase":
+        return result.phased_purchase_score >= 0.85 and result.long_term_fit_score >= 0.05
+    if result.original_task_family == "bundle_noise":
+        return result.bundle_decision_score >= 0.45
+    return True
 
 
 def _infer_drift_expectation(raw: dict) -> tuple[bool, Optional[str]]:
@@ -151,6 +174,20 @@ def _infer_task_family(raw: dict) -> str:
     if task_type == "comparison":
         return "comparison"
     return "general"
+
+
+def _gold_categories_for_eval(
+    raw: dict[str, Any],
+    original_raw: dict[str, Any],
+) -> list[str]:
+    expected = raw.get("expected", {})
+    original_expected = original_raw.get("expected", {})
+    return (
+        original_expected.get("gold_categories")
+        or original_raw.get("categories", [])
+        or expected.get("gold_categories")
+        or raw.get("categories", [])
+    )
 
 
 def _apply_user_profile_overrides(profile: UserProfile, overrides: dict[str, Any]) -> UserProfile:
@@ -197,6 +234,8 @@ class BenchmarkRunner:
         self._disable_verifier = disable_verifier
         self._disable_clarification = disable_clarification
         self._baseline_profile = baseline_profile or "full_agent"
+        if self._baseline_profile == "no_bundle_scoring":
+            self.orchestrator.planner.set_bundle_scoring(False)
 
     def run(
         self,
@@ -248,13 +287,21 @@ class BenchmarkRunner:
         if self._benchmark_mode == "e2e":
             return self._run_single_task_e2e(raw, verbose=verbose)
 
+        original_raw = copy.deepcopy(raw)
+        original_family = _infer_task_family(original_raw)
         raw = self._apply_baseline_profile(raw)
         task_id = raw["task_id"]
         query = raw["query"]
         expected = raw.get("expected", {})
         budget = raw.get("constraints", {}).get("budget_total", {}).get("value")
 
-        result = TaskResult(task_id=task_id, query=query, task_family=_infer_task_family(raw))
+        inferred_family = _infer_task_family(raw)
+        result = TaskResult(
+            task_id=task_id,
+            query=query,
+            task_family=inferred_family,
+            original_task_family=original_family,
+        )
         t_start = time.time()
         drift_expected, drift_type = _infer_drift_expectation(raw)
         result.drift_expected = drift_expected
@@ -318,6 +365,12 @@ class BenchmarkRunner:
                 )
                 result.style_coherence_score = state.selected_plan.style_coherence_score
                 result.bundle_completeness_score = state.selected_plan.bundle_completeness_score
+                result.compatibility_score = getattr(
+                    state.selected_plan, "compatibility_score", 0.0
+                )
+                result.bundle_decision_score = getattr(
+                    state.selected_plan, "bundle_decision_score", 0.0
+                )
                 result.long_term_fit_score = state.selected_plan.long_term_fit_score
                 result.phased_purchase_score = state.selected_plan.phased_purchase_score
                 result.budget_satisfied = (budget is None or total <= budget * 1.05)
@@ -338,6 +391,12 @@ class BenchmarkRunner:
                 result.constraint_hit_rate = _check_required_attrs(
                     plan_items_with_attrs, required_attrs
                 )
+                gold_categories = _gold_categories_for_eval(raw, original_raw)
+                result.plan_category_match = _safe_ratio_overlap(
+                    [item.product.category for item in state.selected_plan.items],
+                    gold_categories,
+                )
+                result.bundle_completeness_score = result.plan_category_match
                 self._populate_drift_diagnostics(result, state, drift_type)
 
                 # Plan diversity: price variation coefficient across candidate plans
@@ -363,8 +422,13 @@ class BenchmarkRunner:
                 )
 
                 result.success = result.has_result and result.budget_satisfied
+                if result.original_task_family in {"bundle", "upgrade_path", "phased_purchase", "bundle_noise"}:
+                    result.bundle_success = _bundle_native_success(result)
+                else:
+                    result.bundle_success = result.success
             else:
                 result.success = False
+                result.bundle_success = False
             self._populate_drift_diagnostics(result, state, drift_type)
 
         except Exception as e:
@@ -391,13 +455,21 @@ class BenchmarkRunner:
         return result
 
     def _run_single_task_e2e(self, raw: dict, verbose: bool = True) -> TaskResult:
+        original_raw = copy.deepcopy(raw)
+        original_family = _infer_task_family(original_raw)
         raw = self._apply_baseline_profile(raw)
         task_id = raw["task_id"]
         query = raw["query"]
         expected = raw.get("expected", {})
         budget = raw.get("constraints", {}).get("budget_total", {}).get("value")
 
-        result = TaskResult(task_id=task_id, query=query, task_family=_infer_task_family(raw))
+        inferred_family = _infer_task_family(raw)
+        result = TaskResult(
+            task_id=task_id,
+            query=query,
+            task_family=inferred_family,
+            original_task_family=original_family,
+        )
         t_start = time.time()
         drift_expected, drift_type = _infer_drift_expectation(raw)
         result.drift_expected = drift_expected
@@ -430,6 +502,7 @@ class BenchmarkRunner:
                 result=result,
                 state=state,
                 raw=raw,
+                original_raw=original_raw,
                 expected=expected,
                 budget=budget,
             )
@@ -438,6 +511,7 @@ class BenchmarkRunner:
             if response.get("needs_input") and self._disable_clarification:
                 result.error = "clarification_disabled"
                 result.success = False
+                result.bundle_success = False
 
         except Exception as e:
             result.error = f"{type(e).__name__}: {str(e)}"
@@ -481,6 +555,13 @@ class BenchmarkRunner:
         if self._baseline_profile == "full_agent":
             return profile
 
+        if self._baseline_profile in {"naive_retrieval", "constraint_only", "no_memory"}:
+            profile.owned_items = []
+            profile.active_setups = {}
+            profile.upgrade_stage = {}
+            profile.purchase_rhythm = {}
+            profile.aspiration_signals = []
+
         if self._baseline_profile in {"naive_retrieval", "constraint_only"}:
             profile.identity_goal = {}
             profile.budget_sensitivity_profile = {}
@@ -489,11 +570,6 @@ class BenchmarkRunner:
             profile.persona_stability = 0.5
             profile.recent_persona_drift = {}
             profile.persona_transition_log = []
-            profile.owned_items = []
-            profile.active_setups = {}
-            profile.upgrade_stage = {}
-            profile.purchase_rhythm = {}
-            profile.aspiration_signals = []
 
         if self._baseline_profile == "naive_retrieval":
             profile.brand_weights = {}
@@ -508,6 +584,7 @@ class BenchmarkRunner:
         result: TaskResult,
         state,
         raw: dict,
+        original_raw: dict,
         expected: dict,
         budget: Optional[float],
     ) -> TaskResult:
@@ -532,6 +609,12 @@ class BenchmarkRunner:
             )
             result.style_coherence_score = state.selected_plan.style_coherence_score
             result.bundle_completeness_score = state.selected_plan.bundle_completeness_score
+            result.compatibility_score = getattr(
+                state.selected_plan, "compatibility_score", 0.0
+            )
+            result.bundle_decision_score = getattr(
+                state.selected_plan, "bundle_decision_score", 0.0
+            )
             result.long_term_fit_score = state.selected_plan.long_term_fit_score
             result.phased_purchase_score = state.selected_plan.phased_purchase_score
             result.budget_satisfied = (budget is None or total <= budget * 1.05)
@@ -551,10 +634,12 @@ class BenchmarkRunner:
             result.constraint_hit_rate = _check_required_attrs(
                 plan_items_with_attrs, required_attrs
             )
+            gold_categories = _gold_categories_for_eval(raw, original_raw)
             result.plan_category_match = _safe_ratio_overlap(
                 [item.product.category for item in state.selected_plan.items],
-                expected.get("gold_categories", raw.get("categories", [])),
+                gold_categories,
             )
+            result.bundle_completeness_score = result.plan_category_match
 
             all_plans = state.candidate_plans
             if len(all_plans) >= 2:
@@ -576,8 +661,13 @@ class BenchmarkRunner:
                 for attr in state.attribution_trace
             )
             result.success = result.has_result and result.budget_satisfied
+            if result.original_task_family in {"bundle", "upgrade_path", "phased_purchase", "bundle_noise"}:
+                result.bundle_success = _bundle_native_success(result)
+            else:
+                result.bundle_success = result.success
         else:
             result.success = False
+            result.bundle_success = False
             if state.current_step == WorkflowStep.ERROR and state.errors:
                 last_error = state.errors[-1]
                 result.error = f"{last_error['error_type']}: {last_error['message']}"
