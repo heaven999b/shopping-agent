@@ -1,0 +1,721 @@
+"""
+RLTrainer — Actor-Critic 训练器（GAE + 线性 Critic）。
+
+训练两个 Actor 策略 + 两个 Critic：
+  - ClarificationPolicy π_θ  +  ClarificationCritic V_θ
+  - PlanningPolicy      π_φ  +  PlanningCritic      V_φ
+
+训练流程（每次迭代）：
+  1. 用 UserSimulator 采集 N 个 episode
+  2. 用 GAE 计算优势 A_t^GAE(γ,λ)（低方差版本的 advantage）
+  3. Actor 更新：∇_θ J = A_t · ∇_θ log π_θ(a_t|s_t)
+  4. Critic 更新：最小化 (V_θ(s_t) - G_t)^2（MC target）
+  5. 记录指标，保存检查点
+
+相比纯 REINFORCE 的改进：
+  - Critic 提供 state-dependent 基线，大幅降低梯度方差
+  - GAE λ 参数平衡偏差-方差权衡（λ=0.95 是 PPO 默认值）
+  - 同时输出 critic_loss 用于监控 value function 的拟合质量
+
+论文实验设计（建议的 Ablation）：
+  - Full model:          RL Clarification + RL Planning (GAE)
+  - Ablation A:          Heuristic Clarification + RL Planning
+  - Ablation B:          RL Clarification + Heuristic Planning
+  - Ablation C:          REINFORCE（no critic）vs GAE（with critic）
+  - Baseline:            Heuristic Clarification + Heuristic Planning
+  - Upper bound:         Oracle（已知用户偏好，不需要澄清）
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import time
+import uuid
+from pathlib import Path
+from typing import Optional
+
+import numpy as np
+
+from shopping_agent.common.types import (
+    ClarificationQuestion,
+    ClarificationStyle,
+    ShoppingTask,
+    TaskType,
+    UserProfile,
+)
+from shopping_agent.rl.episode_buffer import EpisodeBuffer
+from shopping_agent.rl.pomdp import (
+    ClarificationReward,
+    ClarificationState,
+    ClarificationTransition,
+    Episode,
+    PlanningReward,
+    PlanningState,
+    PlanningTransition,
+)
+from shopping_agent.rl.policy import (
+    ALL_SLOTS,
+    LinearValueCritic,
+    RLClarificationPolicy,
+    RLPlanningPolicy,
+)
+from shopping_agent.rl.belief import BeliefState
+from shopping_agent.rl.user_simulator import (
+    HiddenUserPreference,
+    RuleBasedUserSimulator,
+)
+
+logger = logging.getLogger(__name__)
+
+
+class RLTrainer:
+    """
+    Actor-Critic 训练器（GAE + 线性 Critic）。
+
+    示例用法：
+        trainer = RLTrainer(checkpoint_dir="./checkpoints")
+        trainer.train(num_iterations=100, episodes_per_iter=32)
+        stats = trainer.evaluate(num_episodes=50)
+    """
+
+    def __init__(
+        self,
+        clar_lr: float = 5e-4,
+        plan_lr: float = 5e-4,
+        critic_lr: float = 1e-3,
+        gamma: float = 0.99,
+        gae_lambda: float = 0.95,
+        checkpoint_dir: str = "./checkpoints",
+    ):
+        self.clar_policy = RLClarificationPolicy(learning_rate=clar_lr)
+        self.plan_policy = RLPlanningPolicy(learning_rate=plan_lr)
+
+        # ── Critics（线性价值函数）──
+        # 特征维度与各策略的输入维度一致
+        from shopping_agent.rl.policy import MAX_SLOTS
+        clar_feature_dim = MAX_SLOTS * 2 + 3 + 4   # 同 RLClarificationPolicy._pad_state_vector
+        plan_feature_dim = 6                         # 同 PlanningState.to_vector()
+        self.clar_critic = LinearValueCritic(clar_feature_dim, learning_rate=critic_lr)
+        self.plan_critic = LinearValueCritic(plan_feature_dim, learning_rate=critic_lr)
+
+        self.simulator = RuleBasedUserSimulator(noise_level=0.1)
+        self.buffer = EpisodeBuffer(capacity=512)
+        self.gamma = gamma
+        self.gae_lambda = gae_lambda
+        self.checkpoint_dir = Path(checkpoint_dir)
+        self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
+
+        self._iteration = 0
+        self._training_log: list[dict] = []
+
+    # ---------------------------------------------------------------------------
+    # 主训练入口
+    # ---------------------------------------------------------------------------
+
+    def train(
+        self,
+        num_iterations: int = 200,
+        episodes_per_iter: int = 32,
+        eval_interval: int = 20,
+        save_interval: int = 50,
+    ) -> list[dict]:
+        """
+        运行 REINFORCE 训练循环。
+
+        返回每次迭代的训练指标列表。
+        """
+        logger.info(f"开始 RL 训练：{num_iterations} 次迭代，每次 {episodes_per_iter} 个 episode")
+
+        self.clar_policy.set_training(True)
+        self.plan_policy.set_training(True)
+
+        for iteration in range(num_iterations):
+            self._iteration = iteration
+            t0 = time.time()
+
+            # 1. 采集 episodes
+            episodes = self._collect_episodes(episodes_per_iter)
+            for ep in episodes:
+                self.buffer.add(ep)
+
+            # 2. 批量更新
+            metrics = self._update_policies(episodes)
+
+            # 3. 清空 buffer（on-policy）
+            self.buffer.clear()
+
+            metrics["iteration"] = iteration
+            metrics["time_s"] = round(time.time() - t0, 2)
+            self._training_log.append(metrics)
+
+            if (iteration + 1) % eval_interval == 0:
+                eval_stats = self.evaluate(num_episodes=20)
+                logger.info(
+                    f"[Iter {iteration+1}] "
+                    f"success={eval_stats['success_rate']:.2%} "
+                    f"turns={eval_stats['avg_turns']:.1f} "
+                    f"plan_score={eval_stats['avg_plan_score']:.3f}"
+                )
+
+            if (iteration + 1) % save_interval == 0:
+                self.save_checkpoint(f"iter_{iteration+1}")
+
+        self.clar_policy.set_training(False)
+        self.plan_policy.set_training(False)
+        return self._training_log
+
+    # ---------------------------------------------------------------------------
+    # Episode 采集
+    # ---------------------------------------------------------------------------
+
+    def _collect_episodes(self, n: int) -> list[Episode]:
+        episodes = []
+        for _ in range(n):
+            user_pref = HiddenUserPreference.sample_random()
+            task = self._sample_task(user_pref)
+            ep = self._run_episode(task, user_pref, explore=True)
+            episodes.append(ep)
+        return episodes
+
+    def _run_episode(
+        self,
+        task: ShoppingTask,
+        user_pref: HiddenUserPreference,
+        explore: bool = True,
+    ) -> Episode:
+        """
+        运行一个完整的购物 episode。
+
+        Phase 1: Clarification（澄清阶段）
+        Phase 2: Planning（规划阶段）
+        """
+        ep = Episode(
+            session_id=str(uuid.uuid4()),
+            user_id="sim_user",
+            task_id=task.task_id,
+        )
+
+        # ── Phase 1: Clarification（含 Bayesian Belief State）──
+        from shopping_agent.common.constants import CLARIFICATION_MAX_ROUNDS
+        user_dropped_out = False
+
+        # 初始化信念状态（均匀先验，对应 POMDP 的 b_0）
+        belief = BeliefState.create(slots=list(task.uncertainty_slots.keys()))
+        # 已知的槽位直接 mark（如用户在初始 query 中明确了预算）
+        for slot, val in task.uncertainty_slots.items():
+            if val is not None:
+                belief.mark_known(slot, val)
+
+        for _round in range(CLARIFICATION_MAX_ROUNDS + 1):
+            clar_state = self._build_clar_state(task, _round, belief=belief)
+
+            # 策略决策（π 接收信念状态特征）
+            action, log_prob = self.clar_policy.decide(clar_state, explore=explore)
+
+            if action.action_type.value == "proceed":
+                # 不再澄清，进入规划
+                reward = ClarificationReward(turn_cost=0.0).total
+                ep.add_clarification_step(ClarificationTransition(
+                    state_vec=self.clar_policy._pad_state_vector(clar_state),
+                    action=action,
+                    log_prob=log_prob,
+                    reward=reward,
+                    next_state_vec=None,
+                    done=True,
+                ))
+                break
+
+            # 构造澄清问题
+            question = ClarificationQuestion(
+                slot=action.slot or "",
+                question=f"请问{action.slot}是什么？",
+                style=ClarificationStyle.OPEN_ENDED,
+            )
+
+            # 用户模拟回答
+            answer, dropout_prob = self.simulator.answer_clarification(
+                question, user_pref
+            )
+
+            # ── Bayesian belief update ──
+            # b_{t+1}(p) ∝ P(obs=answer | preference=p) · b_t(p)
+            if action.slot:
+                belief.update(action.slot, answer, noise=0.1)
+
+            # 更新任务状态（填充槽位，同时 mark 信念为确定值）
+            if action.slot in task.uncertainty_slots:
+                task.uncertainty_slots[action.slot] = answer
+                belief.mark_known(action.slot, answer)
+
+            # 计算即时奖励
+            unc_reduction = self._compute_uncertainty_reduction(task, action.slot)
+            reward = ClarificationReward(
+                turn_cost=1.0,
+                constraint_reduction=unc_reduction,
+                user_dropout_penalty=dropout_prob,
+            ).total
+            reward += self._compute_drift_clarification_bonus(action.slot, user_pref)
+
+            # 用户流失检查
+            if np.random.random() < dropout_prob * 0.3:
+                user_dropped_out = True
+                ep.add_clarification_step(ClarificationTransition(
+                    state_vec=self.clar_policy._pad_state_vector(clar_state),
+                    action=action,
+                    log_prob=log_prob,
+                    reward=reward - 1.0,  # 额外惩罚
+                    next_state_vec=None,
+                    done=True,
+                ))
+                break
+
+            next_state = self._build_clar_state(task, _round + 1)
+            ep.add_clarification_step(ClarificationTransition(
+                state_vec=self.clar_policy._pad_state_vector(clar_state),
+                action=action,
+                log_prob=log_prob,
+                reward=reward,
+                next_state_vec=self.clar_policy._pad_state_vector(next_state),
+                done=False,
+            ))
+
+        # ── Phase 2: Planning（简化模拟）──
+        if not user_dropped_out:
+            plan_summary = self._simulate_planning(task, user_pref, ep)
+            satisfaction = self.simulator.evaluate_plan(plan_summary, user_pref)
+            ep.final_task_success = satisfaction >= 0.7
+            ep.final_plan_score = satisfaction
+            ep.execution_readiness_score = self._compute_execution_readiness(
+                task, plan_summary, satisfaction
+            )
+            if not ep.final_task_success:
+                ep.failure_bucket = "plan_quality"
+        else:
+            ep.execution_readiness_score = 0.0
+            ep.failure_bucket = "dropout"
+
+        ep.total_turns = len(ep.clarification_transitions)
+        ep.intent_resolution_score = self._compute_intent_resolution(task, ep.total_turns)
+        ep.phase_completion_score = self._compute_phase_completion(ep, user_dropped_out)
+        ep.drift_detected = user_pref.drift_type is not None
+        ep.drift_adaptation_score = self._compute_drift_adaptation(task, user_pref, ep)
+        return ep
+
+    # ---------------------------------------------------------------------------
+    # 策略更新（REINFORCE）
+    # ---------------------------------------------------------------------------
+
+    def _update_policies(self, episodes: list[Episode]) -> dict:
+        """
+        Actor-Critic 更新（GAE advantages + Critic MSE）。
+
+        对每个 episode：
+          1. 计算 GAE 优势 A_t 和 MC 回报 G_t
+          2. Actor 更新：∇_θ J = A_t · ∇_θ log π(a|s)（低方差）
+          3. Critic 更新：minimize (V(s_t) - G_t)^2
+        """
+        clar_actor_losses, clar_critic_losses = [], []
+        plan_actor_losses, plan_critic_losses = [], []
+
+        for ep in episodes:
+            clar_adv, plan_adv, clar_ret, plan_ret = ep.compute_gae_advantages(
+                self.clar_critic, self.plan_critic,
+                gamma=self.gamma, lam=self.gae_lambda,
+            )
+
+            # ── 澄清策略更新 ──
+            for transition, advantage, G in zip(
+                ep.clarification_transitions, clar_adv, clar_ret
+            ):
+                sv = transition.state_vec
+                # Actor: REINFORCE with GAE advantage (replaces raw G_t)
+                state = self._vec_to_clar_state(sv)
+                actor_loss = self.clar_policy.update(state, transition.action, advantage)
+                clar_actor_losses.append(actor_loss)
+
+                # Critic: fit V(s_t) → G_t
+                critic_loss = self.clar_critic.update(sv, G)
+                clar_critic_losses.append(critic_loss)
+
+            # ── 规划策略更新 ──
+            for transition, advantage, G in zip(
+                ep.planning_transitions, plan_adv, plan_ret
+            ):
+                sv = transition.state_vec
+                state = self._vec_to_plan_state(sv)
+                actor_loss = self.plan_policy.update(state, transition.action, advantage)
+                plan_actor_losses.append(actor_loss)
+
+                critic_loss = self.plan_critic.update(sv, G)
+                plan_critic_losses.append(critic_loss)
+
+        success_rate = np.mean([float(ep.final_task_success) for ep in episodes])
+        avg_turns = np.mean([ep.total_turns for ep in episodes])
+        avg_score = np.mean([ep.final_plan_score for ep in episodes])
+        avg_intent_resolution = np.mean([ep.intent_resolution_score for ep in episodes])
+        avg_execution_readiness = np.mean([ep.execution_readiness_score for ep in episodes])
+        avg_phase_completion = np.mean([ep.phase_completion_score for ep in episodes])
+        avg_drift_adaptation = np.mean([ep.drift_adaptation_score for ep in episodes])
+        drift_detection_rate = np.mean([float(ep.drift_detected) for ep in episodes])
+
+        return {
+            # Actor losses（使用 GAE advantage 而非原始 G_t）
+            "clar_actor_loss": float(np.mean(clar_actor_losses)) if clar_actor_losses else 0.0,
+            "plan_actor_loss": float(np.mean(plan_actor_losses)) if plan_actor_losses else 0.0,
+            # Critic MSE（监控 value function 的拟合质量）
+            "clar_critic_mse": float(np.mean(clar_critic_losses)) if clar_critic_losses else 0.0,
+            "plan_critic_mse": float(np.mean(plan_critic_losses)) if plan_critic_losses else 0.0,
+            # 兼容旧日志格式
+            "clar_loss": float(np.mean(clar_actor_losses)) if clar_actor_losses else 0.0,
+            "plan_loss": float(np.mean(plan_actor_losses)) if plan_actor_losses else 0.0,
+            "success_rate": float(success_rate),
+            "avg_turns": float(avg_turns),
+            "avg_plan_score": float(avg_score),
+            "avg_intent_resolution_score": float(avg_intent_resolution),
+            "avg_execution_readiness_score": float(avg_execution_readiness),
+            "avg_phase_completion_score": float(avg_phase_completion),
+            "avg_drift_adaptation_score": float(avg_drift_adaptation),
+            "drift_detection_rate": float(drift_detection_rate),
+            "num_episodes": len(episodes),
+        }
+
+    # ---------------------------------------------------------------------------
+    # 评估
+    # ---------------------------------------------------------------------------
+
+    def evaluate(self, num_episodes: int = 50) -> dict:
+        """在探索关闭的情况下评估策略性能。"""
+        self.clar_policy.set_training(False)
+        self.plan_policy.set_training(False)
+
+        episodes = []
+        for _ in range(num_episodes):
+            user_pref = HiddenUserPreference.sample_random()
+            task = self._sample_task(user_pref)
+            ep = self._run_episode(task, user_pref, explore=False)
+            episodes.append(ep)
+
+        self.clar_policy.set_training(True)
+        self.plan_policy.set_training(True)
+
+        return {
+            "success_rate": float(np.mean([ep.final_task_success for ep in episodes])),
+            "avg_turns": float(np.mean([ep.total_turns for ep in episodes])),
+            "avg_plan_score": float(np.mean([ep.final_plan_score for ep in episodes])),
+            "avg_intent_resolution_score": float(np.mean([ep.intent_resolution_score for ep in episodes])),
+            "avg_execution_readiness_score": float(np.mean([ep.execution_readiness_score for ep in episodes])),
+            "avg_phase_completion_score": float(np.mean([ep.phase_completion_score for ep in episodes])),
+            "avg_drift_adaptation_score": float(np.mean([ep.drift_adaptation_score for ep in episodes])),
+            "drift_detection_rate": float(np.mean([float(ep.drift_detected) for ep in episodes])),
+            "num_episodes": num_episodes,
+        }
+
+    # ---------------------------------------------------------------------------
+    # 检查点
+    # ---------------------------------------------------------------------------
+
+    def save_checkpoint(self, tag: str = "latest") -> None:
+        self.clar_policy.save(str(self.checkpoint_dir / f"clar_policy_{tag}.pkl"))
+        self.plan_policy.save(str(self.checkpoint_dir / f"plan_policy_{tag}.pkl"))
+        self.clar_critic.save(str(self.checkpoint_dir / f"clar_critic_{tag}.pkl"))
+        self.plan_critic.save(str(self.checkpoint_dir / f"plan_critic_{tag}.pkl"))
+        log_path = self.checkpoint_dir / f"training_log_{tag}.json"
+        with open(log_path, "w") as f:
+            json.dump(self._training_log, f, indent=2)
+        logger.info(f"检查点已保存: {tag}")
+
+    def load_checkpoint(self, tag: str = "latest") -> None:
+        self.clar_policy.load(str(self.checkpoint_dir / f"clar_policy_{tag}.pkl"))
+        self.plan_policy.load(str(self.checkpoint_dir / f"plan_policy_{tag}.pkl"))
+        clar_critic_path = self.checkpoint_dir / f"clar_critic_{tag}.pkl"
+        plan_critic_path = self.checkpoint_dir / f"plan_critic_{tag}.pkl"
+        if clar_critic_path.exists():
+            self.clar_critic.load(str(clar_critic_path))
+        if plan_critic_path.exists():
+            self.plan_critic.load(str(plan_critic_path))
+
+    # ---------------------------------------------------------------------------
+    # 辅助方法
+    # ---------------------------------------------------------------------------
+
+    def _sample_task(self, user_pref: HiddenUserPreference) -> ShoppingTask:
+        """从用户偏好采样一个购物任务（初始不确定性较高）。"""
+        from shopping_agent.common.types import Constraint, ConstraintSeverity
+        import random as _random
+
+        # 随机选择场景对应的品类
+        scenario_categories = {
+            "home": ["monitor", "keyboard", "mouse"],
+            "travel": ["laptop", "bag"],
+            "outdoor": ["tent", "sleeping_bag", "backpack"],
+            "office": ["chair", "desk", "monitor"],
+        }
+        categories = scenario_categories.get(
+            user_pref.usage_scenario,
+            ["monitor", "keyboard"]
+        )
+
+        # 初始任务：部分约束已知，部分不确定
+        known_budget = _random.random() > (1 - user_pref.clarity)
+        constraints = []
+        if known_budget:
+            constraints.append(Constraint(
+                key="budget_total",
+                value=user_pref.budget_total,
+                severity=ConstraintSeverity.HARD,
+                source="user",
+            ))
+
+        uncertainty_slots = {slot: None for slot in ALL_SLOTS[:6]}
+        if known_budget:
+            uncertainty_slots["budget_total"] = user_pref.budget_total
+
+        return ShoppingTask(
+            task_id=str(uuid.uuid4()),
+            task_type=TaskType.BUNDLE,
+            categories=categories,
+            raw_query=f"{user_pref.usage_scenario}场景购物",
+            constraints=constraints,
+            uncertainty_slots=uncertainty_slots,
+            uncertainty_score=1.0 - user_pref.clarity,
+        )
+
+    def _build_clar_state(
+        self,
+        task: ShoppingTask,
+        round_idx: int,
+        belief: Optional[BeliefState] = None,
+    ) -> ClarificationState:
+        """
+        从任务状态 + 信念状态构建澄清 POMDP 状态。
+
+        uncertainty_vector 从信念状态的熵（归一化）得出，
+        比固定的 0/1 二值更精细，能体现"部分了解"的状态。
+
+        impact_vector 用信念的 VoI（期望信息增益）替代静态权重，
+        使策略能优先询问信息价值最高的槽位。
+        """
+        slot_names = list(task.uncertainty_slots.keys())[:len(ALL_SLOTS)]
+
+        if belief is not None:
+            # 使用信念状态的归一化熵作为不确定性
+            unc = np.array([
+                belief.slot_beliefs[s].uncertainty()
+                if s in belief.slot_beliefs else
+                (0.0 if task.uncertainty_slots.get(s) is not None else 1.0)
+                for s in slot_names
+            ])
+            # 使用 VoI 作为影响力（期望询问收益）
+            imp = np.array([
+                belief.slot_beliefs[s].expected_info_gain()
+                if s in belief.slot_beliefs else 0.3
+                for s in slot_names
+            ])
+            # 归一化 VoI 到 [0, 1]
+            imp_max = imp.max()
+            if imp_max > 1e-8:
+                imp = imp / imp_max
+        else:
+            unc = np.array([
+                0.0 if task.uncertainty_slots.get(s) is not None else 1.0
+                for s in slot_names
+            ])
+            impact_map = {
+                "budget_total": 1.0, "usage_scenario": 0.9, "delivery_days": 0.7,
+                "brand_preference": 0.6, "size": 0.8, "color": 0.2,
+            }
+            imp = np.array([impact_map.get(s, 0.3) for s in slot_names])
+
+        return ClarificationState(
+            slot_names=slot_names,
+            uncertainty_vector=unc,
+            impact_vector=imp,
+            conversation_round=round_idx,
+            budget_known=task.uncertainty_slots.get("budget_total") is not None,
+            task_type_id=list(TaskType).index(task.task_type),
+            profile_features=np.array([0.5, 0.5, 0.5, len(task.categories) / 5.0]),
+        )
+
+    def _compute_uncertainty_reduction(self, task: ShoppingTask, slot: Optional[str]) -> float:
+        """计算填充某个槽位带来的不确定性降低量。"""
+        if slot is None:
+            return 0.0
+        total = len([v for v in task.uncertainty_slots.values() if v is None])
+        return 1.0 / max(total + 1, 1)
+
+    @staticmethod
+    def _compute_intent_resolution(task: ShoppingTask, total_turns: int) -> float:
+        if task.uncertainty_slots:
+            known = sum(1 for v in task.uncertainty_slots.values() if v is not None)
+            slot_resolution = known / len(task.uncertainty_slots)
+        else:
+            slot_resolution = 1.0
+        turn_efficiency = max(0.0, 1.0 - total_turns / 6.0)
+        return float(0.75 * slot_resolution + 0.25 * turn_efficiency)
+
+    @staticmethod
+    def _compute_execution_readiness(
+        task: ShoppingTask,
+        plan_summary: dict,
+        satisfaction: float,
+    ) -> float:
+        budget_total = task.get_hard_constraints().get("budget_total")
+        total_price = plan_summary.get("total_price", 0.0)
+        budget_fit = 1.0
+        if budget_total:
+            budget_fit = (
+                1.0 if total_price <= budget_total
+                else max(0.0, 1.0 - (total_price - budget_total) / budget_total)
+            )
+        return float(0.6 * satisfaction + 0.4 * budget_fit)
+
+    @staticmethod
+    def _compute_phase_completion(ep: Episode, user_dropped_out: bool) -> float:
+        completed = 1.0
+        if ep.clarification_transitions:
+            completed += 1.0
+        if ep.planning_transitions:
+            completed += 2.0
+        if ep.final_task_success:
+            completed += 1.0
+        max_phases = 5.0
+        if user_dropped_out:
+            completed = min(completed, 2.0)
+        return float(completed / max_phases)
+
+    @staticmethod
+    def _compute_drift_clarification_bonus(
+        slot: Optional[str],
+        user_pref: HiddenUserPreference,
+    ) -> float:
+        if slot is None or user_pref.drift_type is None:
+            return 0.0
+        drift_slot_map = {
+            "budget_drift": "budget_total",
+            "style_drift": "style",
+            "brand_drift": "brand_preference",
+        }
+        target_slot = drift_slot_map.get(user_pref.drift_type)
+        if slot != target_slot:
+            return 0.0
+        return 0.18 + 0.12 * user_pref.drift_strength
+
+    @staticmethod
+    def _compute_drift_adaptation(
+        task: ShoppingTask,
+        user_pref: HiddenUserPreference,
+        ep: Episode,
+    ) -> float:
+        if user_pref.drift_type is None:
+            return 1.0
+
+        drift_slot_map = {
+            "budget_drift": "budget_total",
+            "style_drift": "style",
+            "brand_drift": "brand_preference",
+        }
+        target_slot = drift_slot_map.get(user_pref.drift_type)
+        slot_known = (
+            target_slot is not None
+            and task.uncertainty_slots.get(target_slot) not in (None, "uncertain")
+        )
+        asked_slots = {
+            t.action.slot
+            for t in ep.clarification_transitions
+            if getattr(t.action, "slot", None)
+        }
+        asked_relevant = target_slot in asked_slots if target_slot else False
+        base = 0.25
+        if slot_known:
+            base += 0.45
+        if asked_relevant:
+            base += 0.2
+        if ep.final_task_success:
+            base += 0.1
+        return float(min(1.0, base))
+
+    def _simulate_planning(
+        self, task: ShoppingTask, user_pref: HiddenUserPreference, ep: Episode
+    ) -> dict:
+        """简化的规划模拟（用于计算 episode reward）。"""
+        budget = user_pref.budget_total
+        n_slots = len(task.categories)
+        per_slot = budget * 0.8 / max(n_slots, 1)
+
+        plan_state = PlanningState(
+            budget_total=budget,
+            budget_used=0.0,
+            total_slots=n_slots,
+            filled_slots=0,
+        )
+
+        brands_chosen = []
+        delivery_days = []
+
+        for i, slot in enumerate(task.categories):
+            action, log_prob = self.plan_policy.decide(plan_state, explore=True)
+
+            # 根据动作选择商品（简化：不同 action 对应不同选品策略）
+            price = per_slot * [0.9, 0.75, 0.95][action.action_id % 3]
+            brand = user_pref.brand_preference[0] if action.action_id == 0 else "Samsung"
+            days = 2 if action.action_id != 1 else 3
+
+            brands_chosen.append(brand)
+            delivery_days.append(days)
+            plan_state.budget_used += price
+            plan_state.filled_slots += 1
+
+            # 规划即时奖励
+            plan_reward = PlanningReward(
+                constraint_score=1.0 if plan_state.budget_used <= budget else 0.0,
+                preference_score=1.0 if brand in user_pref.brand_preference else 0.3,
+                value_score=0.8,
+            )
+            next_state = PlanningState(
+                budget_total=budget,
+                budget_used=plan_state.budget_used,
+                total_slots=n_slots,
+                filled_slots=plan_state.filled_slots,
+            )
+            ep.add_planning_step(PlanningTransition(
+                state_vec=plan_state.to_vector(),
+                action=action,
+                log_prob=log_prob,
+                reward=plan_reward.total,
+                next_state_vec=next_state.to_vector(),
+                done=(i == n_slots - 1),
+            ))
+            plan_state = next_state
+
+        return {
+            "total_price": plan_state.budget_used,
+            "brands": brands_chosen,
+            "max_delivery_days": max(delivery_days) if delivery_days else 3,
+            "avg_rating": 4.5,
+        }
+
+    def _vec_to_clar_state(self, vec: np.ndarray) -> ClarificationState:
+        """从向量重建澄清状态（仅用于 update 时传入 policy）。"""
+        K = len(ALL_SLOTS)
+        return ClarificationState(
+            slot_names=ALL_SLOTS,
+            uncertainty_vector=vec[:K],
+            impact_vector=vec[K:2*K],
+            conversation_round=int(vec[2*K] * 5),
+            budget_known=vec[2*K+1] > 0.5,
+            task_type_id=int(vec[2*K+2] * 5),
+            profile_features=vec[2*K+3:],
+        )
+
+    def _vec_to_plan_state(self, vec: np.ndarray) -> PlanningState:
+        """从向量重建规划状态。"""
+        return PlanningState(
+            budget_total=1.0,
+            budget_used=float(vec[0]),
+            total_slots=max(1, int(1.0 / max(1 - float(vec[1]), 0.01))),
+            filled_slots=int(float(vec[1]) * 5),
+            constraint_sat_partial=float(vec[2]),
+            preference_match_partial=float(vec[3]),
+            incompatible_risk=float(vec[4]),
+        )

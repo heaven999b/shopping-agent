@@ -1,0 +1,65 @@
+{
+  "_comment": "Shopping Agent 默认配置，所有模块参数均可从此处覆盖",
+
+  "agent": {
+    "use_rl": false,
+    "max_clarification_rounds": 3,
+    "session_timeout_seconds": 1800
+  },
+
+  "retrieval": {
+    "top_k": 8,
+    "keyword_weight": 0.6,
+    "vector_weight": 0.4,
+    "min_score_threshold": 0.0
+  },
+
+  "planning": {
+    "num_candidate_plans": 3,
+    "budget_slack": 0.05,
+    "strategies": ["best_composite", "cheapest", "highest_rated"]
+  },
+
+  "verifier": {
+    "budget_hard_limit_ratio": 1.05,
+    "delivery_days_slack": 1,
+    "enable_risk_check": true,
+    "enable_compatibility_check": true
+  },
+
+  "rl": {
+    "clar_lr": 5e-4,
+    "plan_lr": 5e-4,
+    "critic_lr": 1e-3,
+    "gamma": 0.99,
+    "gae_lambda": 0.95,
+    "episodes_per_iter": 32,
+    "num_iterations": 200,
+    "eval_interval": 20,
+    "save_interval": 50,
+    "checkpoint_dir": "./checkpoints"
+  },
+
+  "memory": {
+    "max_history_turns": 20,
+    "preference_decay": 0.95
+  },
+
+  "data": {
+    "products_path": null,
+    "tasks_path": null,
+    "cache_ttl_seconds": 3600
+  },
+
+  "logging": {
+    "level": "INFO",
+    "log_dir": "./logs",
+    "save_trajectories": false
+  },
+
+  "benchmark": {
+    "output_dir": "./logs",
+    "user_id": "benchmark_user",
+    "verbose": true
+  }
+}
